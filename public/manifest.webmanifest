@@ -1,0 +1,17 @@
+{
+  "name": "가사 노트",
+  "short_name": "가사노트",
+  "description": "일본어·러시아어 노래 가사로 공부하기: 줄별 해석, 핵심 단어, 문법, 러시아어 강세",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#15141f",
+  "theme_color": "#1d1b2e",
+  "lang": "ko",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

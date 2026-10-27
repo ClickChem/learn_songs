@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#1d1b2e">
+  <title>가사 노트</title>
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="icon" href="./icon-192.png">
+  <link rel="apple-touch-icon" href="./apple-touch-icon.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@500;700&family=Noto+Sans+KR:wght@400;500;700&family=Noto+Serif+JP:wght@400;600&family=PT+Serif:wght@400;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="./src/style.css">
+</head>
+<body>
+  <div class="wrap">
+    <header class="brand">
+      <h1>가사<span class="acc">·</span>노트</h1>
+      <button class="btn small" type="button" id="openSettings">설정 · API 키</button>
+    </header>
+
+    <aside class="panel" aria-label="노래 입력">
+      <div class="field">
+        <span class="label">언어</span>
+        <div class="seg" role="group" aria-label="언어 선택" id="langSeg">
+          <button type="button" data-lang="auto" aria-pressed="true">자동</button>
+          <button type="button" data-lang="ja" aria-pressed="false">日本語</button>
+          <button type="button" data-lang="ru" aria-pressed="false">Русский</button>
+        </div>
+      </div>
+      <div class="row2">
+        <div class="field"><label class="label" for="title">노래 제목</label><input type="text" id="title" autocomplete="off"></div>
+        <div class="field"><label class="label" for="artist">가수</label><input type="text" id="artist" autocomplete="off"></div>
+      </div>
+      <div class="field">
+        <label class="label" for="lyrics">가사 붙여넣기</label>
+        <textarea id="lyrics" placeholder="가사를 한 줄씩 붙여넣으세요. 빈 줄은 절 구분으로 유지됩니다."></textarea>
+        <p class="hint">앱은 가사를 직접 가져오지 않습니다. 정식 가사 사이트나 음원 앱에서 복사해 붙여넣어 주세요. <a id="searchLink" href="https://www.google.com/search?q=lyrics" target="_blank" rel="noopener">제목으로 가사 검색 ↗</a></p>
+      </div>
+      <div class="actions">
+        <button class="btn primary" type="button" id="go">분석하기</button>
+        <button class="btn" type="button" id="stop" hidden>멈춤</button>
+        <button class="btn" type="button" id="exJa">일본어 예시</button>
+        <button class="btn" type="button" id="exRu">러시아어 예시</button>
+      </div>
+      <div class="progress" aria-hidden="true"><i id="bar"></i></div>
+      <div class="status" id="status" role="status"></div>
+
+      <section class="box" aria-labelledby="wbH">
+        <div class="box-head"><h2 id="wbH">내 단어장</h2><button class="btn small" type="button" id="copyWb">복사</button></div>
+        <ul class="wb" id="wb"></ul>
+      </section>
+      <section class="box" aria-labelledby="hiH">
+        <div class="box-head"><h2 id="hiH">최근 분석한 노래</h2></div>
+        <ul class="hist" id="hist"></ul>
+      </section>
+    </aside>
+
+    <main class="sheet" id="sheet" aria-live="polite"></main>
+
+    <footer class="note">
+      해석·강세·읽기는 AI가 생성한 결과라 틀릴 수 있습니다. 특히 러시아어 강세는 단어 형태에 따라 바뀌므로, 외우기 전에 사전(예: Wiktionary)에서 확인하세요.
+      가사와 단어장, API 키는 이 휴대폰에만 저장되며, 분석할 때 가사가 Anthropic API로 전송됩니다.
+    </footer>
+  </div>
+
+  <dialog id="settings" aria-labelledby="setH">
+    <form method="dialog" class="settings" id="settingsForm">
+      <h2 id="setH">설정</h2>
+      <div class="field">
+        <label class="label" for="apiKey">Anthropic API 키</label>
+        <input type="password" id="apiKey" autocomplete="off" spellcheck="false" placeholder="sk-ant-...">
+        <p class="hint">platform.claude.com의 Console에서 발급합니다. 키는 이 기기의 브라우저 저장소에만 저장되고, api.anthropic.com 외에는 보내지 않습니다. 사용량은 API 계정에 과금됩니다.</p>
+      </div>
+      <div class="field">
+        <label class="label" for="model">모델</label>
+        <select id="model">
+          <option value="claude-opus-5-5">Claude Opus 5.5 (가장 정확, 비용 높음)</option>
+          <option value="claude-sonnet-5-5">Claude Sonnet 5.5 (균형)</option>
+          <option value="claude-haiku-5-5">Claude Haiku 5.5 (빠르고 저렴, 정확도 낮을 수 있음)</option>
+        </select>
+      </div>
+      <div class="actions">
+        <button class="btn primary" type="submit" value="save" id="saveSettings">저장</button>
+        <button class="btn" type="button" id="clearKey">키 삭제</button>
+        <button class="btn" type="submit" value="cancel" formnovalidate>닫기</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script type="module" src="./src/main.js"></script>
+</body>
+</html>
