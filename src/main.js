@@ -66,15 +66,90 @@ function rubyNodes(segs, fallback) {
   return frag;
 }
 const keyOf = (w, lang) => lang + "|" + (w.lemma || w.word || "").replace(/́/g, "");
+// Lines that differ only in case, punctuation or spacing count as the same line,
+// so a chorus pasted with a stray comma is still analyzed (and explained) once.
+const lineKey = (t) => t.toLowerCase().replace(/[\p{P}\p{S}]/gu, "").replace(/\s+/g, " ").trim() || t;
 function uniqueLines(raw) {
   const map = new Map(), uniq = [], idx = [];
   raw.forEach((line) => {
     const t = line.trim();
     if (!t) { idx.push(null); return; }
-    if (!map.has(t)) { map.set(t, uniq.length); uniq.push(t); }
-    idx.push(map.get(t));
+    const k = lineKey(t);
+    if (!map.has(k)) { map.set(k, uniq.length); uniq.push(t); }
+    idx.push(map.get(k));
   });
   return { uniq, idx };
+}
+
+// One lyric line. A line already explained earlier shows only text and translation.
+function lineRow(u, n, uniq, lang, seenAt) {
+  const d = current.lines[u];
+  const row = el("article", "ln");
+  row.append(el("div", "ln-no", String(n).padStart(2, "0")));
+  const body = el("div", "ln-body");
+  const orig = el("div", "orig " + lang);
+  if (d && lang === "ru" && d.stressed) orig.append(stressedLineNodes(d.stressed, seenAt == null ? d.check?.diffs : null));
+  else if (d && lang === "ja") orig.append(rubyNodes(d.ruby, uniq[u]));
+  else orig.append(uniq[u]);
+  body.append(orig);
+  row.append(body);
+  if (!d) { body.append(el("div", "pending", current.lineErrors?.[u] || "분석 대기 중…")); return row; }
+  if (d.roman) body.append(el("div", "roman", d.roman));
+  body.append(el("div", "trans", d.translation || ""));
+  if (seenAt != null) { body.append(el("div", "repeat-tag", `${seenAt}행과 같은 줄 · 해설은 ${seenAt}행에`)); return row; }
+
+  const detail = el("div", "detail");
+  if (d.words?.length) {
+    const ws = el("div", "words");
+    d.words.forEach((w) => ws.append(wordCard(w, lang)));
+    detail.append(ws);
+  }
+  (d.grammar || []).forEach((g) => {
+    const gb = el("div", "gram " + lang);
+    const b = el("b"), q = el("p");
+    b.append(lang === "ru" ? stressNodes(g.point || "") : (g.point || ""));
+    q.append(lang === "ru" ? stressNodes(g.explain || "") : (g.explain || ""));
+    gb.append(b, q); detail.append(gb);
+  });
+  if (d.check?.diffs?.length) {
+    const box = el("div", "unsure");
+    box.append(el("b", null, "강세 확인 필요 "), "Claude와 사전 모델의 강세가 다릅니다. 사전에서 확인하세요.");
+    const ul = el("ul", "check-list");
+    d.check.diffs.forEach((x) => {
+      const c = el("span", "w ru"); c.append(stressNodes(x.claude));
+      const m = el("span", "w ru"); m.append(stressNodes(x.tool));
+      const li = el("li"); li.append("Claude ", c, " · 모델 ", m);
+      ul.append(li);
+    });
+    box.append(ul);
+    detail.append(box);
+  }
+  if (d.unsure?.length) detail.append(el("div", "unsure", "확인 필요: " + d.unsure.join(" / ")));
+  if (detail.childElementCount) body.append(detail);
+  return row;
+}
+
+// A whole stanza identical to an earlier one (usually the chorus): one folded line.
+function repeatedStanza(st, [from, to], uniq, lang) {
+  const box = el("details", "repeat-stanza");
+  const sum = el("summary");
+  sum.append(`후렴 반복 · ${from}–${to}행과 같음 (${st.length}줄)`);
+  box.append(sum);
+  st.forEach(({ u, n }) => {
+    const d = current.lines[u];
+    const row = el("div", "rep-line");
+    row.append(el("span", "ln-no", String(n).padStart(2, "0")));
+    const t = el("div");
+    const o = el("div", "orig small " + lang);
+    if (d && lang === "ru" && d.stressed) o.append(stressNodes(d.stressed));
+    else if (d && lang === "ja") o.append(rubyNodes(d.ruby, uniq[u]));
+    else o.append(uniq[u]);
+    t.append(o);
+    if (d?.translation) t.append(el("div", "trans", d.translation));
+    row.append(t);
+    box.append(row);
+  });
+  return box;
 }
 
 // ---------- Rendering ----------
@@ -95,64 +170,29 @@ function render() {
 
   const { idx, uniq } = uniqueLines(current.raw);
   const lines = el("section", "lines");
-  const seen = new Set();
-  let n = 0;
-  idx.forEach((u, i) => {
-    if (u === null) { if (i > 0 && idx[i - 1] !== null) lines.append(el("div", "stanza-gap")); return; }
-    n++;
-    const d = current.lines[u];
-    const row = el("article", "ln");
-    row.append(el("div", "ln-no", String(n).padStart(2, "0")));
-    const body = el("div", "ln-body");
-    const orig = el("div", "orig " + lang);
-    if (d && lang === "ru" && d.stressed) orig.append(stressedLineNodes(d.stressed, d.check?.diffs));
-    else if (d && lang === "ja") orig.append(rubyNodes(d.ruby, uniq[u]));
-    else orig.append(uniq[u]);
-    body.append(orig);
-    if (!d) body.append(el("div", "pending", current.lineErrors?.[u] || "분석 대기 중…"));
-    else {
-      if (d.roman) body.append(el("div", "roman", d.roman));
-      body.append(el("div", "trans", d.translation || ""));
-      const repeat = seen.has(u); seen.add(u);
-      const detail = el("div", "detail");
-      detail.hidden = repeat;
-      if (repeat) {
-        const t = el("button", "ln-toggle", "반복되는 줄 · 설명 보기");
-        t.type = "button";
-        t.onclick = () => { detail.hidden = !detail.hidden; t.textContent = detail.hidden ? "반복되는 줄 · 설명 보기" : "설명 접기"; };
-        body.append(t);
-      }
-      if (d.words?.length) {
-        const ws = el("div", "words");
-        d.words.forEach((w) => ws.append(wordCard(w, lang)));
-        detail.append(ws);
-      }
-      (d.grammar || []).forEach((g) => {
-        const gb = el("div", "gram " + lang);
-        const b = el("b"), q = el("p");
-        b.append(lang === "ru" ? stressNodes(g.point || "") : (g.point || ""));
-        q.append(lang === "ru" ? stressNodes(g.explain || "") : (g.explain || ""));
-        gb.append(b, q); detail.append(gb);
-      });
-      if (d.check?.diffs?.length) {
-        // Shown even on collapsed repeat lines: a disputed stress matters every time.
-        const box = el("div", "unsure");
-        box.append(el("b", null, "강세 확인 필요 "), "Claude와 사전 모델의 강세가 다릅니다. 사전에서 확인하세요.");
-        const ul = el("ul", "check-list");
-        d.check.diffs.forEach((x) => {
-          const c = el("span", "w ru"); c.append(stressNodes(x.claude));
-          const m = el("span", "w ru"); m.append(stressNodes(x.tool));
-          const li = el("li"); li.append("Claude ", c, " · 모델 ", m);
-          ul.append(li);
-        });
-        box.append(ul);
-        body.append(box);
-      }
-      if (d.unsure?.length) detail.append(el("div", "unsure", "확인 필요: " + d.unsure.join(" / ")));
-      body.append(detail);
-    }
-    row.append(body);
-    lines.append(row);
+
+  // Group lines into stanzas (split at blank lines) and number them.
+  const stanzas = [];
+  let cur = null, n = 0;
+  idx.forEach((u) => {
+    if (u === null) { cur = null; return; }
+    if (!cur) stanzas.push(cur = []);
+    cur.push({ u, n: ++n });
+  });
+
+  const firstNo = new Map();       // unique line -> number where it first appears
+  const firstStanza = new Map();   // stanza signature -> [first, last] line numbers
+  stanzas.forEach((st, si) => {
+    if (si > 0) lines.append(el("div", "stanza-gap"));
+    const sig = st.map((x) => x.u).join(",");
+    const prev = st.length > 1 && firstStanza.get(sig);
+    if (prev) { lines.append(repeatedStanza(st, prev, uniq, lang)); return; }
+    if (st.length > 1) firstStanza.set(sig, [st[0].n, st.at(-1).n]);
+    st.forEach(({ u, n }) => {
+      const seenAt = firstNo.get(u);
+      if (seenAt == null) firstNo.set(u, n);
+      lines.append(lineRow(u, n, uniq, lang, seenAt));
+    });
   });
   sheet.append(lines);
   // Overview sits below the lines, collapsed unless the reader opens it.
