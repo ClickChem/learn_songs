@@ -28,27 +28,44 @@ export class RefusedError extends Error {}
 // ---------- Prompts ----------
 const LANG_NAME = { ru: "Russian", ja: "Japanese" };
 
-const system = (lang) => [
-  `You are a careful ${LANG_NAME[lang]} tutor for a Korean speaker who learns the language through songs.`,
-  `Work ONLY with the lyric text the learner pasted. Never add, complete, or recall other lyrics of the song from memory, even if you think you know them.`,
+const system = (lang, kind) => [
+  kind === "bible"
+    ? `You are a careful ${LANG_NAME[lang]} tutor for a Korean speaker who reads the Bible in ${LANG_NAME[lang]} to learn the language.`
+    : `You are a careful ${LANG_NAME[lang]} tutor for a Korean speaker who learns the language through songs.`,
+  kind === "bible"
+    ? `Work ONLY with the passage the learner pasted. Never add, complete, or recall other verses from memory, and do not quote any other Bible translation.`
+    : `Work ONLY with the lyric text the learner pasted. Never add, complete, or recall other lyrics of the song from memory, even if you think you know them.`,
   lang === "ru"
     ? `Write translations, word meanings, notes and the overview in natural Korean, but use Russian grammatical terms (e.g. дательный падеж, несовершенный вид) instead of Korean ones. Grammar points are written entirely in simple Russian, as the user prompt describes.`
     : `Write every explanation, translation and note in natural Korean.`,
   `Accuracy matters more than completeness: if you are not sure about a reading, stress, nuance or idiom, say so briefly in "unsure" instead of stating it confidently.`,
 ].join("\n");
 
-const songLine = (s) => `Song (as named by the learner): "${s.title || "unknown"}"${s.artist ? " by " + s.artist : ""}.`;
+const songLine = (s) => s.kind === "bible"
+  ? `Bible passage. Reference as given by the learner: "${s.title || "unknown"}"; translation: "${s.artist || "unknown"}".`
+  : `Song (as named by the learner): "${s.title || "unknown"}"${s.artist ? " by " + s.artist : ""}.`;
+
+// What the Bible tab needs on top of the song rules.
+const BIBLE_NOTES = {
+  ru: `- This is a Bible text (often the Synodal translation, 1876). Pay special attention to Church Slavonic and archaic forms (церковнославяни́змы: и́бо, да́бы, сей, оне́, -ия endings, звательная форма, old word order) and explain what modern word they correspond to. Grammar explanations stay in simple Russian.`,
+  ja: `- This is a Bible text (e.g. 口語訳, 新改訳, 新共同訳, 文語訳). Pay special attention to archaic and literary forms, honorific language used for God and Jesus (賜わる, 給う, 〜たもう, 御〜), and Bible-specific vocabulary (贖い, 義, 恵み ...).`,
+};
 
 function overviewPrompt(s) {
+  const bible = s.kind === "bible";
   return `${songLine(s)}
 Based only on the pasted text below, give:
-- song_title, song_artist: the song's title and performer, only if you recognize the song from these lyrics with high confidence; otherwise "" for both. Write them as commonly published (original script). Never quote lyrics here.
-- summary: 3-5 Korean sentences on what the lyrics say and their mood
+${bible
+  ? `- song_title: the book, chapter and verse(s) in Korean (e.g. "요한복음 3:16-17"), only if you can identify them with high confidence; otherwise "".
+- song_artist: the translation's name (e.g. "Синодальный перевод", "口語訳"), only if you can tell with high confidence from the wording; otherwise "".
+- summary: 3-5 Korean sentences on what the passage says and its context in the book`
+  : `- song_title, song_artist: the song's title and performer, only if you recognize the song from these lyrics with high confidence; otherwise "" for both. Write them as commonly published (original script). Never quote lyrics here.
+- summary: 3-5 Korean sentences on what the lyrics say and their mood`}
 - level: a short Korean estimate of learner level (e.g. 초급, 중급)
 - tips: 2-4 short Korean study tips specific to this text${s.lang === "ru" ? " (assume the learner knows A1-A2 grammar; no tips about basic declension or agreement; use Russian grammatical terms)" : " (the learner has passed JLPT N2; tips only about N1-level grammar, idioms, literary forms or nuance)"}
-Do not state facts about the song's release, writer or background unless they are visible in the text.
+${bible ? "Keep the summary factual and neutral." : "Do not state facts about the song's release, writer or background unless they are visible in the text."}
 
-Pasted lyrics:
+Pasted ${bible ? "passage" : "lyrics"}:
 ${s.raw.join("\n")}`;
 }
 
@@ -60,21 +77,21 @@ function linesPrompt(s, batch, covered) {
 - words[].meaning: Korean. words[].note: short Korean, but name grammar with Russian terms (e.g. "соверше́нный вид는 упа́сть").
 - grammar: write point and explain entirely in Russian at CEFR A2-B1 level: short sentences, common everyday words, Russian grammatical terms (паде́ж, вид, род, предло́г, глаго́л...), and a short example. Put U+0301 stress marks on every word of two or more syllables. No Korean in grammar.
 - The learner already knows A1-A2 grammar. Do NOT explain basics such as noun/adjective declension by gender and case, basic case use after common prepositions, gender agreement, present/past tense forms or personal pronouns. Choose points from B1 and above instead: aspect choice and its nuance, prefixed verbs of motion, participles and verbal adverbs (причастия, деепричастия), conditional and subjunctive (бы), impersonal constructions, word order and emphasis, colloquial or poetic forms, idioms and set phrases. If a line has nothing beyond A2, return grammar as [].
-- words: likewise skip words a learner at A2 knows; pick the less common or song-specific ones.`
+- words: likewise skip words a learner at A2 knows; pick the less common or song-specific ones.${s.kind === "bible" ? "\n" + BIBLE_NOTES.ru : ""}`
     : `- ruby: consecutive segments that together reproduce the line exactly. Each segment {t, r}: r is the hiragana reading only for segments containing kanji (okurigana goes in its own segment with r ""), otherwise r is "".
 - words[].word: dictionary form; reading: hiragana; pos: Korean part of speech (e.g. 동사 (5단)); note: e.g. the conjugated form used in the line.
 - The learner has passed JLPT N2. Do NOT explain grammar or words at N2 level or below (particles, ている, だろう, ように, ばかり, わけ, はず and the like). Focus on N1-level grammar, idioms and set phrases (慣用句, 四字熟語, ことわざ), literary and classical forms common in lyrics (〜ぬ, 〜ず, 〜ゆく, 〜べし, 〜んことを, 〜ども ...), poetic or unusual kanji readings (当て字), and nuance between near-synonyms. If a line has nothing beyond N2, return grammar as [] and only list words that are genuinely advanced (words can be []).
-- grammar: point is the pattern in Japanese (e.g. 〜んばかりに); explain in Korean, 1-2 sentences, with what level/register it is.`;
+- grammar: point is the pattern in Japanese (e.g. 〜んばかりに); explain in Korean, 1-2 sentences, with what level/register it is.${s.kind === "bible" ? "\n" + BIBLE_NOTES.ja : ""}`;
   return `${songLine(s)}
 For each numbered line below return an entry with:
 - id: the number given
 ${fmt}
-- translation: natural Korean translation that fits the context
+- translation: natural Korean translation that fits the context${s.kind === "bible" ? ", using standard Korean Christian terms (e.g. 독생자, 은혜, 의) but in your own wording; do not quote a published Korean Bible" : ""}
 - words: 2-5 key words worth learning, skipping trivial particles and pronouns${covered.length ? ` and these already explained: ${covered.slice(-80).join(", ")}` : ""}. note may be "".
 - grammar: 1-2 grammar points visible in the line, each explained in 1-2 sentences${s.lang === "ru" ? " (in simple Russian, see above)" : " of Korean"}
 - unsure: [] or short Korean notes on anything you are not certain about
 
-Full pasted lyrics, for context only:
+Full pasted ${s.kind === "bible" ? "passage" : "lyrics"}, for context only:
 ${s.raw.join("\n")}
 
 Lines to analyze:
@@ -87,11 +104,11 @@ function client(apiKey) {
   return new Anthropic({ apiKey, dangerouslyAllowBrowser: true });
 }
 
-async function ask({ apiKey, model, lang, prompt, schema, signal }) {
+async function ask({ apiKey, model, lang, kind, prompt, schema, signal }) {
   const params = {
     model,
     max_tokens: 16000,
-    system: system(lang),
+    system: system(lang, kind),
     messages: [{ role: "user", content: prompt }],
     output_config: { effort: "medium", format: betaZodOutputFormat(schema) },
   };
@@ -107,10 +124,10 @@ async function ask({ apiKey, model, lang, prompt, schema, signal }) {
 }
 
 export const analyzeOverview = (opts, song) =>
-  ask({ ...opts, lang: song.lang, prompt: overviewPrompt(song), schema: Overview });
+  ask({ ...opts, lang: song.lang, kind: song.kind, prompt: overviewPrompt(song), schema: Overview });
 
 export const analyzeLines = (opts, song, batch, covered) =>
-  ask({ ...opts, lang: song.lang, prompt: linesPrompt(song, batch, covered), schema: LINES[song.lang] }).then((r) => r.lines);
+  ask({ ...opts, lang: song.lang, kind: song.kind, prompt: linesPrompt(song, batch, covered), schema: LINES[song.lang] }).then((r) => r.lines);
 
 export function describeError(e) {
   if (e instanceof Anthropic.APIUserAbortError) return null;

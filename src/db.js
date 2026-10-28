@@ -27,9 +27,9 @@ async function tx(mode, fn) {
   });
 }
 
-// Same lyrics (ignoring blank lines, edge spaces and language choice) -> same key.
-export async function lyricsKey(lang, raw) {
-  const text = lang + "\n" + raw.map((l) => l.trim()).filter(Boolean).join("\n");
+// Same text (ignoring blank lines and edge spaces) in the same tab and language -> same key.
+export async function lyricsKey(lang, raw, kind) {
+  const text = (kind === "bible" ? "bible\n" : "") + lang + "\n" + raw.map((l) => l.trim()).filter(Boolean).join("\n");
   const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
   return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }

@@ -1,5 +1,6 @@
 import { analyzeOverview, analyzeLines, describeError, isFatal } from "./claude.js";
-import { EXAMPLES } from "./examples.js";
+import { EXAMPLES, BIBLE_EXAMPLES } from "./examples.js";
+import { parseVerses } from "./bible.js";
 import { crossCheck } from "./stresscheck.js";
 import { stripSectionLabels } from "./lyrics.js";
 import { lyricsKey, getSong, putSong, deleteSong, listSongs, requestPersist, migrateFromLocalStorage } from "./db.js";
@@ -19,6 +20,30 @@ let ctrl = null, stopped = false;
 let wordbook = store.get("ln.wordbook", []);
 let history = [];  // saved analyses, loaded from IndexedDB
 let settings = { apiKey: "", model: "claude-opus-5-5", stressCheck: true, ...store.get("ln.settings", {}) };
+let mode = store.get("ln.mode", "song") === "bible" ? "bible" : "song";   // which tab is open
+const lastView = { song: null, bible: null };                              // what each tab last showed
+
+// Words that differ between the song tab and the Bible tab.
+const MODES = {
+  song: {
+    titleLabel: "노래 제목", artistLabel: "가수", textLabel: "가사 붙여넣기",
+    placeholder: "가사를 한 줄씩 붙여넣으세요. 빈 줄은 절 구분으로 유지됩니다.",
+    noTitle: "제목 없음", noArtist: "가수 미상", guess: "제목·가수는 Claude 추정 (눌러서 수정)",
+    empty: "가사를 붙여넣어 주세요. 제목만으로는 분석할 수 없어요.", dupWhat: "이 가사는",
+    listEmpty: "분석한 노래가 여기에 저장됩니다 (이 기기에만).", unit: "곡", unitLine: "줄",
+    exampleFlag: "예시 · 데모용으로 직접 쓴 문장입니다", examples: EXAMPLES,
+  },
+  bible: {
+    titleLabel: "장·절 (예: 요한복음 3:16)", artistLabel: "번역본", textLabel: "성경 구절 붙여넣기",
+    placeholder: "구절을 붙여넣으세요. 한 줄에 한 절씩, 앞의 절 번호는 그대로 둬도 됩니다.",
+    noTitle: "출처 미상", noArtist: "번역본 미상", guess: "장·절·번역본은 Claude 추정 (눌러서 수정)",
+    empty: "성경 구절을 붙여넣어 주세요. 장·절만으로는 분석할 수 없어요.", dupWhat: "이 구절은",
+    listEmpty: "분석한 구절이 여기에 저장됩니다 (이 기기에만).", unit: "개", unitLine: "문장",
+    exampleFlag: "예시 · 공개 저작물 번역본(시노달역·문어역) 본문을 기억으로 옮긴 것이니 인쇄본과 대조하세요",
+    examples: BIBLE_EXAMPLES,
+  },
+};
+const M = (kind) => MODES[kind === "bible" ? "bible" : "song"];
 
 // ---------- Helpers ----------
 function detectLang(txt) {
@@ -98,10 +123,10 @@ function uniqueLines(raw) {
 }
 
 // One lyric line. A line already explained earlier shows only text and translation.
-function lineRow(u, n, uniq, lang, seenAt) {
+function lineRow(u, label, uniq, lang, seenAt) {
   const d = current.lines[u];
   const row = el("article", "ln");
-  row.append(el("div", "ln-no", String(n).padStart(2, "0")));
+  row.append(el("div", "ln-no", label));
   const body = el("div", "ln-body");
   const orig = el("div", "orig " + lang);
   if (d && lang === "ru" && d.stressed) orig.append(stressedLineNodes(d.stressed, seenAt == null ? d.check?.diffs : null));
@@ -111,7 +136,10 @@ function lineRow(u, n, uniq, lang, seenAt) {
   row.append(body);
   if (!d) { body.append(el("div", "pending", current.lineErrors?.[u] || "분석 대기 중…")); return row; }
   body.append(el("div", "trans", d.translation || ""));
-  if (seenAt != null) { body.append(el("div", "repeat-tag", `${seenAt}행과 같은 줄 · 해설은 ${seenAt}행에`)); return row; }
+  if (seenAt != null) {
+    body.append(el("div", "repeat-tag", current.kind === "bible" ? `앞(${seenAt || "위"})에 나온 문장과 같음 · 해설은 그곳에` : `${seenAt}행과 같은 줄 · 해설은 ${seenAt}행에`));
+    return row;
+  }
 
   const detail = el("div", "detail");
   if (d.words?.length) {
@@ -176,10 +204,11 @@ function render() {
 
   const head = el("div", "song-head");
   const hl = el("div");
-  const title = el("p", "song-title", current.title || "제목 없음");
-  const artist = el("span", "song-artist", current.artist || (current.example ? "" : "가수 미상"));
+  const T = M(current.kind);
+  const title = el("p", "song-title", current.title || T.noTitle);
+  const artist = el("span", "song-artist", current.artist || (current.example ? "" : T.noArtist));
   if (!current.example) {
-    for (const [node, field, empty] of [[title, "title", "제목 없음"], [artist, "artist", "가수 미상"]]) {
+    for (const [node, field, empty] of [[title, "title", T.noTitle], [artist, "artist", T.noArtist]]) {
       node.contentEditable = "plaintext-only";
       node.spellcheck = false;
       node.title = "눌러서 고칠 수 있어요";
@@ -197,10 +226,10 @@ function render() {
   }
   const meta = el("div", "song-meta");
   meta.append(artist, " · " + (lang === "ru" ? "러시아어" : "일본어"));
-  if (current.titleGuessed) meta.append(el("span", "guess", " · 제목·가수는 Claude 추정 (눌러서 수정)"));
+  if (current.titleGuessed) meta.append(el("span", "guess", " · " + T.guess));
   hl.append(title, meta);
   head.append(hl);
-  if (current.example) head.append(el("span", "example-flag", "예시 · 데모용으로 직접 쓴 문장입니다"));
+  if (current.example) head.append(el("span", "example-flag", T.exampleFlag));
   sheet.append(head);
 
 
@@ -210,10 +239,13 @@ function render() {
   // Group lines into stanzas (split at blank lines) and number them.
   const stanzas = [];
   let cur = null, n = 0;
-  idx.forEach((u) => {
+  idx.forEach((u, i) => {
     if (u === null) { cur = null; return; }
     if (!cur) stanzas.push(cur = []);
-    cur.push({ u, n: ++n });
+    n++;
+    // Bible: show the verse number pulled from the text (blank for a verse's later sentences)
+    const label = current.kind === "bible" ? (current.nums?.[i] ?? "") : String(n).padStart(2, "0");
+    cur.push({ u, n, label });
   });
 
   const firstNo = new Map();       // unique line -> number where it first appears
@@ -221,13 +253,13 @@ function render() {
   stanzas.forEach((st, si) => {
     if (si > 0) lines.append(el("div", "stanza-gap"));
     const sig = st.map((x) => x.u).join(",");
-    const prev = st.length > 1 && firstStanza.get(sig);
+    const prev = current.kind !== "bible" && st.length > 1 && firstStanza.get(sig);
     if (prev) { lines.append(repeatedStanza(st, prev, uniq, lang)); return; }
     if (st.length > 1) firstStanza.set(sig, [st[0].n, st.at(-1).n]);
-    st.forEach(({ u, n }) => {
+    st.forEach(({ u, n, label }) => {
       const seenAt = firstNo.get(u);
-      if (seenAt == null) firstNo.set(u, n);
-      lines.append(lineRow(u, n, uniq, lang, seenAt));
+      if (seenAt == null) firstNo.set(u, current.kind === "bible" ? label : n);
+      lines.append(lineRow(u, label, uniq, lang, seenAt));
     });
   });
   sheet.append(lines);
@@ -297,13 +329,13 @@ function openSaved(h) {
 }
 async function renderHistory() {
   const ul = $("#hist");
-  try { history = await listSongs(); } catch { history = []; }
+  try { history = (await listSongs()).filter((h) => (h.kind === "bible") === (mode === "bible")); } catch { history = []; }
   ul.replaceChildren();
-  $("#histCount").textContent = history.length ? `${history.length}곡` : "";
-  if (!history.length) { ul.append(el("li", "empty", "분석한 노래가 여기에 저장됩니다 (이 기기에만).")); return; }
+  $("#histCount").textContent = history.length ? `${history.length}${MODES[mode].unit}` : "";
+  if (!history.length) { ul.append(el("li", "empty", MODES[mode].listEmpty)); return; }
   history.forEach((h) => {
     const li = el("li"); const b = el("button", "open"); b.type = "button";
-    b.append(h.title || "제목 없음", " ", el("small", null, (h.artist ? h.artist + " · " : "") + (h.lang === "ru" ? "RU" : "JA")));
+    b.append(h.title || M(h.kind).noTitle, " ", el("small", null, (h.artist ? h.artist + " · " : "") + (h.lang === "ru" ? "RU" : "JA")));
     b.onclick = () => openSaved(h);
     const x = el("button", "x", "×"); x.type = "button"; x.setAttribute("aria-label", `${h.title || "제목 없음"} 해설 삭제`);
     // Two-tap delete: first tap arms, second tap deletes (no confirm() in a PWA we can rely on).
@@ -327,7 +359,7 @@ async function saveHistory(song) {
 }
 function showDup(saved, rerun) {
   const box = $("#dupNotice");
-  $("#dupText").textContent = `이 가사는 이미 분석해서 저장해 둔 해설이 있습니다${saved.title ? ` (‘${saved.title}’)` : ""}. 다시 분석하면 API 비용이 다시 듭니다.`;
+  $("#dupText").textContent = `${M(saved.kind).dupWhat} 이미 분석해서 저장해 둔 해설이 있습니다${saved.title ? ` (‘${saved.title}’)` : ""}. 다시 분석하면 API 비용이 다시 듭니다.`;
   $("#dupOpen").onclick = () => openSaved(saved);
   $("#dupRerun").onclick = () => { hideDup(); rerun(); };
   box.hidden = false;
@@ -336,7 +368,7 @@ function hideDup() { $("#dupNotice").hidden = true; }
 function fillForm(c) {
   $("#title").value = c.example ? "" : (c.title || "");
   $("#artist").value = c.example ? "" : (c.artist || "");
-  $("#lyrics").value = c.example ? "" : c.raw.join("\n");
+  $("#lyrics").value = c.example ? "" : c.raw.map((l, i) => (c.nums?.[i] ? c.nums[i] + " " : "") + l).join("\n");
   updateSearch();
 }
 function setLang(l) { langChoice = l; document.querySelectorAll("#langSeg button").forEach((b) => b.setAttribute("aria-pressed", b.dataset.lang === l)); }
@@ -350,15 +382,21 @@ function updateSearch() {
 // ---------- Analyze ----------
 async function analyze({ force = false } = {}) {
   hideDup();
-  const { lines: raw, removed } = stripSectionLabels($("#lyrics").value.replace(/\r/g, "").split("\n"));
-  if (removed.length) $("#lyrics").value = raw.join("\n");
+  const kind = mode === "bible" ? "bible" : undefined;
+  const pasted = $("#lyrics").value.replace(/\r/g, "").split("\n");
+  let raw, removed = [], nums;
+  if (kind === "bible") ({ lines: raw, nums } = parseVerses(pasted));
+  else {
+    ({ lines: raw, removed } = stripSectionLabels(pasted));
+    if (removed.length) $("#lyrics").value = raw.join("\n");
+  }
   const labelNote = removed.length ? ` 구간 표시 ${removed.length}줄(${removed.slice(0, 3).join(", ")}${removed.length > 3 ? " …" : ""})은 뺐습니다.` : "";
   const text = raw.join("\n").trim();
-  if (!text) { setStatus("가사를 붙여넣어 주세요. 제목만으로는 분석할 수 없어요.", true); $("#lyrics").focus(); return; }
+  if (!text) { setStatus(MODES[mode].empty, true); $("#lyrics").focus(); return; }
   const lang = langChoice === "auto" ? detectLang(text) : langChoice;
   if (!lang) { setStatus("일본어나 러시아어 문자를 찾지 못했습니다. 언어를 직접 선택해 주세요.", true); return; }
   let key = null;
-  try { key = await lyricsKey(lang, raw); } catch {}
+  try { key = await lyricsKey(lang, raw, kind); } catch {}
   if (key && !force) {
     let saved = null;
     try { saved = await getSong(key); } catch {}
@@ -366,8 +404,9 @@ async function analyze({ force = false } = {}) {
   }
   if (!settings.apiKey) { setStatus("먼저 설정에서 Anthropic API 키를 입력해 주세요.", true); openSettings(); return; }
 
-  while (raw.length && !raw[raw.length - 1].trim()) raw.pop();
-  current = { key, lang, title: $("#title").value.trim(), artist: $("#artist").value.trim(), raw, lines: {}, overview: null, lineErrors: {} };
+  while (raw.length && !raw[raw.length - 1].trim()) { raw.pop(); nums?.pop(); }
+  current = { key, kind, lang, title: $("#title").value.trim(), artist: $("#artist").value.trim(), raw, nums, lines: {}, overview: null, lineErrors: {} };
+  lastView[mode] = current;
   const song = current;
   render();
   window.scrollTo({ top: $("#sheet").offsetTop - 12, behavior: "smooth" });
@@ -401,7 +440,7 @@ async function analyze({ force = false } = {}) {
   let done = 0, failed = false, checkFailed = false, checkNoted = false;
   for (const batch of batches) {
     if (stopped) break;
-    setStatus(`줄별 분석 중… ${Math.min(done + batch.length, uniq.length)}/${uniq.length}줄`);
+    setStatus(`${MODES[mode].unitLine}별 분석 중… ${Math.min(done + batch.length, uniq.length)}/${uniq.length}${MODES[mode].unitLine}`);
     try {
       const lines = await analyzeLines(opts, song, batch, covered);
       for (const d of lines) {
@@ -436,17 +475,17 @@ async function analyze({ force = false } = {}) {
   await ovP;
   $("#go").disabled = false; $("#stop").hidden = true; ctrl = null;
   const ok = Object.keys(song.lines).length;
-  if (stopped) setStatus(`멈췄습니다. ${ok}/${uniq.length}줄 분석됨.`);
+  if (stopped) setStatus(`멈췄습니다. ${ok}/${uniq.length}${MODES[mode].unitLine} 분석됨.`);
   else if (!failed) {
     const n = Object.values(song.lines).reduce((s, d) => s + (d.check?.diffs?.length || 0), 0);
     const check = lang !== "ru" || !settings.stressCheck ? ""
       : checkFailed ? " 강세 확인 모델을 불러오지 못해 교차 확인은 건너뛰었습니다."
       : n ? ` 강세가 엇갈린 단어 ${n}개에 밑줄을 쳤습니다.` : " 강세 교차 확인에서 엇갈린 단어는 없었습니다.";
-    setStatus(`완료 · ${uniq.length}줄 분석.${labelNote}${check} 강세·읽기는 사전으로 한 번 더 확인하세요.`);
+    setStatus(`완료 · ${uniq.length}${MODES[mode].unitLine} 분석.${labelNote}${check} 강세·읽기는 사전으로 한 번 더 확인하세요.`);
   }
   if (ok && song.key) {
     saveHistory(song);
-    // Ready for the next song.
+    // Ready for the next song / passage.
     $("#lyrics").value = ""; $("#title").value = ""; $("#artist").value = ""; updateSearch();
   }
 }
@@ -477,7 +516,29 @@ $("#openSettings").onclick = openSettings;
 document.querySelectorAll("#langSeg button").forEach((b) => (b.onclick = () => setLang(b.dataset.lang)));
 $("#go").onclick = () => analyze();
 $("#stop").onclick = () => { stopped = true; ctrl?.abort(); };
-const showExample = (k) => { current = clone(EXAMPLES[k]); render(); setStatus("예시를 보는 중입니다. 실제 가사를 붙여넣고 ‘분석하기’를 누르세요."); };
+const showExample = (k) => {
+  current = clone(MODES[mode].examples[k]); lastView[mode] = current; render();
+  setStatus(`예시를 보는 중입니다. 실제 ${mode === "bible" ? "구절" : "가사"}을 붙여넣고 ‘분석하기’를 누르세요.`);
+};
+
+function setMode(m, { initial = false } = {}) {
+  mode = m; store.set("ln.mode", m);
+  const T = MODES[m];
+  document.querySelectorAll(".tabs [role=tab]").forEach((t) => t.setAttribute("aria-selected", t.dataset.mode === m));
+  $("#titleLabel").textContent = T.titleLabel;
+  $("#artistLabel").textContent = T.artistLabel;
+  $("#textLabel").textContent = T.textLabel;
+  $("#lyrics").placeholder = T.placeholder;
+  $("#textHint").hidden = m === "bible";   // the lyrics-search hint only makes sense for songs
+  if (!initial) {
+    $("#lyrics").value = ""; $("#title").value = ""; $("#artist").value = ""; updateSearch(); hideDup();
+    setStatus("");
+  }
+  current = lastView[m] || clone(T.examples.ru);
+  lastView[m] = current;
+  render(); renderHistory();
+}
+document.querySelectorAll(".tabs [role=tab]").forEach((t) => (t.onclick = () => { if (t.dataset.mode !== mode && !ctrl) setMode(t.dataset.mode); }));
 $("#exRu").onclick = () => showExample("ru");
 $("#exJa").onclick = () => showExample("ja");
 $("#title").addEventListener("input", updateSearch);
@@ -489,11 +550,11 @@ $("#copyWb").onclick = async () => {
   catch { setStatus("복사가 막혀 있습니다. 단어장 목록을 직접 선택해 복사해 주세요.", true); }
 };
 
-current = clone(EXAMPLES.ru);
-render(); renderWordbook(); updateSearch();
+setMode(mode, { initial: true });
+renderWordbook(); updateSearch();
 migrateFromLocalStorage().catch(() => {}).finally(renderHistory);
 requestPersist();
-setStatus(settings.apiKey ? "러시아어 예시입니다. 가사를 붙여넣고 ‘분석하기’를 누르세요." : "처음이라면 오른쪽 위 ‘설정 · API 키’에서 키를 입력하세요.");
+setStatus(settings.apiKey ? `러시아어 예시입니다. ${mode === "bible" ? "구절" : "가사"}을 붙여넣고 ‘분석하기’를 누르세요.` : "처음이라면 오른쪽 위 ‘설정 · API 키’에서 키를 입력하세요.");
 
 if ("serviceWorker" in navigator && import.meta.env.PROD) {
   navigator.serviceWorker.register("./sw.js").catch(() => {});
