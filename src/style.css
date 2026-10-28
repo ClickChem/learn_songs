@@ -104,6 +104,11 @@ ruby rt { font-size: 0.5em; color: var(--accent); font-family: var(--font-body);
 .gram p { margin: 0; font-size: 14px; }
 .unsure { background: var(--warn-soft); color: var(--warn); border-radius: 8px; padding: 7px 12px; font-size: 13px; }
 .pending { color: var(--muted); font-size: 13px; font-style: italic; }
+.disagree { text-decoration: underline wavy var(--warn); text-underline-offset: 5px; text-decoration-thickness: 1.5px; }
+.check-list { margin: 4px 0 0; padding-left: 1.2em; }
+.check-list .w { font-size: 16px; color: var(--ink); }
+label.check { display: flex; align-items: center; gap: 8px; font-weight: 500; }
+label.check input { width: 18px; height: 18px; accent-color: var(--accent); }
 
 .box { background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 14px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
 .box-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }

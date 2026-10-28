@@ -80,6 +80,10 @@
           <option value="claude-haiku-5-5">Claude Haiku 5.5 (빠르고 저렴, 정확도 낮을 수 있음)</option>
         </select>
       </div>
+      <div class="field">
+        <label class="check"><input type="checkbox" id="stressCheck"> 러시아어 강세 교차 확인</label>
+        <p class="hint">Claude가 표시한 강세를 휴대폰 안의 별도 강세 모델(rustress)과 비교해, 서로 다른 단어에 밑줄을 칩니다. 어느 쪽이 맞는지는 판단하지 않으니 사전으로 확인하세요. 처음 쓸 때 약 20MB를 내려받습니다.</p>
+      </div>
       <div class="actions">
         <button class="btn primary" type="submit" value="save" id="saveSettings">저장</button>
         <button class="btn" type="button" id="clearKey">키 삭제</button>

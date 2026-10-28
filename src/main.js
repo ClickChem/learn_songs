@@ -1,5 +1,6 @@
 import { analyzeOverview, analyzeLines, describeError, isFatal } from "./claude.js";
 import { EXAMPLES } from "./examples.js";
+import { crossCheck } from "./stresscheck.js";
 
 const $ = (s) => document.querySelector(s);
 const el = (tag, cls, text) => { const n = document.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = text; return n; };
@@ -15,7 +16,7 @@ let current = null;      // { lang, title, artist, raw[], lines{uniqueIdx: data}
 let ctrl = null, stopped = false;
 let wordbook = store.get("ln.wordbook", []);
 let history = store.get("ln.history", []);
-let settings = store.get("ln.settings", { apiKey: "", model: "claude-opus-5-5" });
+let settings = { apiKey: "", model: "claude-opus-5-5", stressCheck: true, ...store.get("ln.settings", {}) };
 
 // ---------- Helpers ----------
 function detectLang(txt) {
@@ -35,6 +36,21 @@ function stressNodes(str) {
     last = re.lastIndex;
   }
   if (last < str.length) frag.append(str.slice(last));
+  return frag;
+}
+// Stressed line, with words where the cross-check disagrees underlined.
+function stressedLineNodes(str, diffs) {
+  if (!diffs?.length) return stressNodes(str);
+  const flagged = new Set(diffs.map((d) => d.index));
+  const frag = document.createDocumentFragment();
+  let i = 0;
+  for (const part of str.split(/(\s+)/)) {
+    if (!part) continue;
+    if (/^\s+$/.test(part)) { frag.append(part); continue; }
+    if (flagged.has(i)) { const s = el("span", "disagree"); s.append(stressNodes(part)); frag.append(s); }
+    else frag.append(stressNodes(part));
+    i++;
+  }
   return frag;
 }
 function rubyNodes(segs, fallback) {
@@ -97,7 +113,7 @@ function render() {
     row.append(el("div", "ln-no", String(n).padStart(2, "0")));
     const body = el("div", "ln-body");
     const orig = el("div", "orig " + lang);
-    if (d && lang === "ru" && d.stressed) orig.append(stressNodes(d.stressed));
+    if (d && lang === "ru" && d.stressed) orig.append(stressedLineNodes(d.stressed, d.check?.diffs));
     else if (d && lang === "ja") orig.append(rubyNodes(d.ruby, uniq[u]));
     else orig.append(uniq[u]);
     body.append(orig);
@@ -122,6 +138,20 @@ function render() {
       (d.grammar || []).forEach((g) => {
         const gb = el("div", "gram"); gb.append(el("b", null, g.point || ""), el("p", null, g.explain || "")); detail.append(gb);
       });
+      if (d.check?.diffs?.length) {
+        // Shown even on collapsed repeat lines: a disputed stress matters every time.
+        const box = el("div", "unsure");
+        box.append(el("b", null, "강세 확인 필요 "), "Claude와 사전 모델의 강세가 다릅니다. 사전에서 확인하세요.");
+        const ul = el("ul", "check-list");
+        d.check.diffs.forEach((x) => {
+          const c = el("span", "w ru"); c.append(stressNodes(x.claude));
+          const m = el("span", "w ru"); m.append(stressNodes(x.tool));
+          const li = el("li"); li.append("Claude ", c, " · 모델 ", m);
+          ul.append(li);
+        });
+        box.append(ul);
+        body.append(box);
+      }
       if (d.unsure?.length) detail.append(el("div", "unsure", "확인 필요: " + d.unsure.join(" / ")));
       body.append(detail);
     }
@@ -236,7 +266,7 @@ async function analyze() {
     .finally(() => { if (current === song) render(); });
 
   const covered = [];
-  let done = 0, failed = false;
+  let done = 0, failed = false, checkFailed = false, checkNoted = false;
   for (const batch of batches) {
     if (stopped) break;
     setStatus(`줄별 분석 중… ${Math.min(done + batch.length, uniq.length)}/${uniq.length}줄`);
@@ -248,6 +278,17 @@ async function analyze() {
         d.words.forEach((w) => covered.push((w.lemma || w.word).replace(/́/g, "")));
       }
       batch.forEach((b) => { if (!song.lines[b.id]) song.lineErrors[b.id] = "이 줄은 결과가 비어 있습니다."; });
+      if (lang === "ru" && settings.stressCheck && !checkFailed) {
+        if (!checkNoted) { setStatus("강세 확인 모델을 불러오는 중… (처음 한 번 약 20MB)"); checkNoted = true; }
+        try {
+          for (const b of batch) {
+            const d = song.lines[b.id];
+            if (d?.stressed) d.check = await crossCheck(b.text, d.stressed);
+          }
+        } catch {
+          checkFailed = true; // keep the Claude results; just skip the cross-check
+        }
+      }
     } catch (e) {
       const m = describeError(e);
       if (m === null) break; // cancelled
@@ -264,7 +305,13 @@ async function analyze() {
   $("#go").disabled = false; $("#stop").hidden = true; ctrl = null;
   const ok = Object.keys(song.lines).length;
   if (stopped) setStatus(`멈췄습니다. ${ok}/${uniq.length}줄 분석됨.`);
-  else if (!failed) setStatus(`완료 · ${uniq.length}줄 분석. 강세·읽기는 사전으로 한 번 더 확인하세요.`);
+  else if (!failed) {
+    const n = Object.values(song.lines).reduce((s, d) => s + (d.check?.diffs?.length || 0), 0);
+    const check = lang !== "ru" || !settings.stressCheck ? ""
+      : checkFailed ? " 강세 확인 모델을 불러오지 못해 교차 확인은 건너뛰었습니다."
+      : n ? ` 강세가 엇갈린 단어 ${n}개에 밑줄을 쳤습니다.` : " 강세 교차 확인에서 엇갈린 단어는 없었습니다.";
+    setStatus(`완료 · ${uniq.length}줄 분석.${check} 강세·읽기는 사전으로 한 번 더 확인하세요.`);
+  }
   if (ok && current === song) saveHistory();
 }
 
@@ -273,11 +320,12 @@ const dlg = $("#settings");
 function openSettings() {
   $("#apiKey").value = settings.apiKey;
   $("#model").value = settings.model;
+  $("#stressCheck").checked = settings.stressCheck;
   dlg.showModal();
 }
 $("#settingsForm").addEventListener("submit", (e) => {
   if (e.submitter?.value !== "save") return;
-  settings = { apiKey: $("#apiKey").value.trim(), model: $("#model").value };
+  settings = { apiKey: $("#apiKey").value.trim(), model: $("#model").value, stressCheck: $("#stressCheck").checked };
   store.set("ln.settings", settings);
   setStatus(settings.apiKey ? "설정을 저장했습니다." : "API 키가 비어 있습니다.", !settings.apiKey);
 });
