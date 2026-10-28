@@ -102,6 +102,8 @@ ruby rt { font-size: 0.5em; color: var(--accent); font-family: var(--font-body);
 .gram { background: var(--cool-soft); border-radius: 8px; padding: 9px 12px; display: flex; flex-direction: column; gap: 4px; }
 .gram b { color: var(--cool); }
 .gram p { margin: 0; font-size: 14px; }
+.gram.ru b, .gram.ru p { font-family: var(--font-ru); }
+.gram.ru p { font-size: 16px; }
 .unsure { background: var(--warn-soft); color: var(--warn); border-radius: 8px; padding: 7px 12px; font-size: 13px; }
 .pending { color: var(--muted); font-size: 13px; font-style: italic; }
 .disagree { text-decoration: underline wavy var(--warn); text-underline-offset: 5px; text-decoration-thickness: 1.5px; }

@@ -137,7 +137,11 @@ function render() {
         detail.append(ws);
       }
       (d.grammar || []).forEach((g) => {
-        const gb = el("div", "gram"); gb.append(el("b", null, g.point || ""), el("p", null, g.explain || "")); detail.append(gb);
+        const gb = el("div", "gram " + lang);
+        const b = el("b"), q = el("p");
+        b.append(lang === "ru" ? stressNodes(g.point || "") : (g.point || ""));
+        q.append(lang === "ru" ? stressNodes(g.explain || "") : (g.explain || ""));
+        gb.append(b, q); detail.append(gb);
       });
       if (d.check?.diffs?.length) {
         // Shown even on collapsed repeat lines: a disputed stress matters every time.
@@ -170,7 +174,7 @@ function wordCard(w, lang) {
   const sub = [lang === "ru" ? (w.lemma && w.lemma !== w.word ? "기본형 " + w.lemma : "") : (w.reading || ""), w.pos].filter(Boolean).join(" · ");
   if (sub) { const s = el("span", "sub"); s.append(lang === "ru" ? stressNodes(sub) : sub); c.append(s); }
   c.append(el("span", "mean", w.meaning || ""));
-  if (w.note) c.append(el("span", "note", w.note));
+  if (w.note) { const n = el("span", "note"); n.append(lang === "ru" ? stressNodes(w.note) : w.note); c.append(n); }
   const k = keyOf(w, lang);
   const b = el("button", "save"); b.type = "button";
   const sync = () => { const on = wordbook.some((x) => x.k === k); b.setAttribute("aria-pressed", on); b.textContent = on ? "★ 단어장에 있음" : "☆ 단어장에 추가"; };

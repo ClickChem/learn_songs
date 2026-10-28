@@ -31,7 +31,9 @@ const LANG_NAME = { ru: "Russian", ja: "Japanese" };
 const system = (lang) => [
   `You are a careful ${LANG_NAME[lang]} tutor for a Korean speaker who learns the language through songs.`,
   `Work ONLY with the lyric text the learner pasted. Never add, complete, or recall other lyrics of the song from memory, even if you think you know them.`,
-  `Write every explanation, translation and note in natural Korean.`,
+  lang === "ru"
+    ? `Write translations, word meanings, notes and the overview in natural Korean, but use Russian grammatical terms (e.g. дательный падеж, несовершенный вид) instead of Korean ones. Grammar points are written entirely in simple Russian, as the user prompt describes.`
+    : `Write every explanation, translation and note in natural Korean.`,
   `Accuracy matters more than completeness: if you are not sure about a reading, stress, nuance or idiom, say so briefly in "unsure" instead of stating it confidently.`,
 ].join("\n");
 
@@ -53,7 +55,10 @@ function linesPrompt(s, batch, covered) {
   const fmt = s.lang === "ru"
     ? `- stressed: the line exactly as given, with the combining acute accent U+0301 placed right after the stressed vowel of every word of two or more syllables. Do not mark ё (always stressed) or one-syllable words. Change no other character.
 - roman: simple Latin transliteration.
-- words[].word / lemma: the form in the line and its dictionary form, both with U+0301 stress marks. pos: Korean part of speech plus case/aspect/gender where relevant.`
+- words[].word / lemma: the form in the line and its dictionary form, both with U+0301 stress marks.
+- words[].pos: in Russian grammatical terms, with U+0301 stress marks, e.g. "глаго́л, несоверше́нный вид" or "существи́тельное, ж. р., да́тельный паде́ж".
+- words[].meaning: Korean. words[].note: short Korean, but name grammar with Russian terms (e.g. "соверше́нный вид는 упа́сть").
+- grammar: write point and explain entirely in Russian at CEFR A2-B1 level: short sentences, common everyday words, Russian grammatical terms (паде́ж, вид, род, предло́г, глаго́л...), and a short example. Put U+0301 stress marks on every word of two or more syllables. No Korean in grammar.`
     : `- ruby: consecutive segments that together reproduce the line exactly. Each segment {t, r}: r is the hiragana reading only for segments containing kanji (okurigana goes in its own segment with r ""), otherwise r is "".
 - roman: Hepburn romanization.
 - words[].word: dictionary form; reading: hiragana; pos: Korean part of speech (e.g. 동사 (5단)); note: e.g. the conjugated form used in the line.`;
@@ -63,7 +68,7 @@ For each numbered line below return an entry with:
 ${fmt}
 - translation: natural Korean translation that fits the context
 - words: 2-5 key words worth learning, skipping trivial particles and pronouns${covered.length ? ` and these already explained: ${covered.slice(-80).join(", ")}` : ""}. note may be "".
-- grammar: 1-2 grammar points visible in the line, each explained in 1-2 Korean sentences
+- grammar: 1-2 grammar points visible in the line, each explained in 1-2 sentences${s.lang === "ru" ? " (in simple Russian, see above)" : " of Korean"}
 - unsure: [] or short Korean notes on anything you are not certain about
 
 Full pasted lyrics, for context only:
