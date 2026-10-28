@@ -47,8 +47,8 @@ const songLine = (s) => s.kind === "bible"
 
 // What the Bible tab needs on top of the song rules.
 const BIBLE_NOTES = {
-  ru: `- This is a Bible text (often the Synodal translation, 1876). Pay special attention to Church Slavonic and archaic forms (церковнославяни́змы: и́бо, да́бы, сей, оне́, -ия endings, звательная форма, old word order) and explain what modern word they correspond to. Grammar explanations stay in simple Russian.`,
-  ja: `- This is a Bible text (e.g. 口語訳, 新改訳, 新共同訳, 文語訳). Pay special attention to archaic and literary forms, honorific language used for God and Jesus (賜わる, 給う, 〜たもう, 御〜), and Bible-specific vocabulary (贖い, 義, 恵み ...).`,
+  ru: `- This is a Bible text, normally from the НРП (Новый русский перевод), a modern Russian translation. Focus on vocabulary and expressions of modern literary Russian as used in Scripture, theological and church terms (благода́ть, пра́ведность, искупле́ние ...), and any remaining traditional or bookish forms, explaining their everyday equivalent. Do not assume Synodal wording. Grammar explanations stay in simple Russian.`,
+  ja: `- This is a Bible text, normally from the JCB (リビングバイブル, Japanese Contemporary Bible), a modern, freely paraphrased Japanese translation. Focus on N1-level expressions, idioms and set phrases, honorific language for God and Jesus (尊敬語・謙譲語), and Bible or church vocabulary (贖い, 義, 恵み, 悔い改め ...). Do not assume 口語訳 or 新共同訳 wording.`,
 };
 
 function overviewPrompt(s) {

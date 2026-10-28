@@ -34,12 +34,12 @@ const MODES = {
     exampleFlag: "예시 · 데모용으로 직접 쓴 문장입니다", examples: EXAMPLES,
   },
   bible: {
-    titleLabel: "장·절 (예: 요한복음 3:16)", artistLabel: "번역본", textLabel: "성경 구절 붙여넣기",
+    titleLabel: "장·절 (예: 요한복음 3:16)", artistLabel: "번역본 (비우면 JCB / НРП)", textLabel: "성경 구절 붙여넣기",
     placeholder: "구절을 붙여넣으세요. 한 줄에 한 절씩, 앞의 절 번호는 그대로 둬도 됩니다.",
     noTitle: "출처 미상", noArtist: "번역본 미상", guess: "장·절·번역본은 Claude 추정 (눌러서 수정)",
     empty: "성경 구절을 붙여넣어 주세요. 장·절만으로는 분석할 수 없어요.", dupWhat: "이 구절은",
     listEmpty: "분석한 구절이 여기에 저장됩니다 (이 기기에만).", unit: "개", unitLine: "문장",
-    exampleFlag: "예시 · 공개 저작물 번역본(시노달역·문어역) 본문을 기억으로 옮긴 것이니 인쇄본과 대조하세요",
+    exampleFlag: "예시 · JCB·НРП는 저작권이 있어 저작권이 끝난 번역본(시노달역·문어역)으로 보여 줍니다. 본문은 기억으로 옮긴 것이니 인쇄본과 대조하세요",
     examples: BIBLE_EXAMPLES,
   },
 };
@@ -405,7 +405,10 @@ async function analyze({ force = false } = {}) {
   if (!settings.apiKey) { setStatus("먼저 설정에서 Anthropic API 키를 입력해 주세요.", true); openSettings(); return; }
 
   while (raw.length && !raw[raw.length - 1].trim()) { raw.pop(); nums?.pop(); }
-  current = { key, kind, lang, title: $("#title").value.trim(), artist: $("#artist").value.trim(), raw, nums, lines: {}, overview: null, lineErrors: {} };
+  // The Bible tab assumes the reader's own translations unless they name another.
+  const DEFAULT_TRANSLATION = { ja: "JCB (リビングバイブル)", ru: "НРП (Новый русский перевод)" };
+  const artist = $("#artist").value.trim() || (kind === "bible" ? DEFAULT_TRANSLATION[lang] : "");
+  current = { key, kind, lang, title: $("#title").value.trim(), artist, raw, nums, lines: {}, overview: null, lineErrors: {} };
   lastView[mode] = current;
   const song = current;
   render();
