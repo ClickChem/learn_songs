@@ -14,6 +14,9 @@
   --font-display: "Nanum Gothic", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
   --font-body: "Nanum Gothic", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
   --font-ru: "PT Serif", Georgia, serif;
+  /* Small mixed Korean/Russian text: PT Sans first so Cyrillic and its stress mark (U+0301)
+     come from one font; Hangul falls through to Nanum Gothic. */
+  --font-mix: "PT Sans", "Nanum Gothic", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
   --font-ja: "Noto Serif JP", "Yu Mincho", serif;
   --font-mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
   color-scheme: light;
@@ -75,9 +78,15 @@ main.sheet { display: flex; flex-direction: column; gap: 18px; min-width: 0; }
 .song-title { font-family: var(--font-display); font-size: clamp(20px, 5vw, 26px); font-weight: 800; margin: 0; overflow-wrap: anywhere; }
 .song-meta { color: var(--muted); font-size: 14px; }
 .example-flag { display: inline-block; font-size: 12px; background: var(--warn-soft); color: var(--warn); border-radius: 4px; padding: 2px 8px; }
-.overview { background: var(--paper); border: 1px solid var(--line); border-radius: 10px; padding: 16px; display: flex; flex-direction: column; gap: 8px; }
-.overview p { margin: 0; max-width: 68ch; }
-.overview ul { margin: 0; padding-left: 1.2em; }
+.overview { background: var(--paper); border: 1px solid var(--line); border-radius: 10px; padding: 0 16px; }
+.overview summary { cursor: pointer; padding: 14px 0; list-style: none; display: flex; align-items: center; gap: 6px; }
+.overview summary::-webkit-details-marker { display: none; }
+.overview summary::before { content: "›"; color: var(--muted); font-size: 20px; line-height: 1; width: 12px; display: inline-block; transition: transform .15s; }
+.overview[open] summary::before { transform: rotate(90deg); }
+@media (prefers-reduced-motion: reduce) { .overview summary::before { transition: none; } }
+.overview[open] { padding-bottom: 16px; }
+.overview > p, .overview > ul { margin: 0 0 8px; max-width: 68ch; }
+.overview > ul { padding-left: 1.2em; }
 .stanza-gap { height: 18px; }
 .ln { display: grid; grid-template-columns: 30px minmax(0, 1fr); gap: 10px; padding: 14px 0; border-top: 1px solid var(--line); }
 .ln-no { font-family: var(--font-mono); font-size: 12px; color: var(--muted); padding-top: 6px; font-variant-numeric: tabular-nums; }
@@ -96,6 +105,7 @@ ruby rt { font-size: 0.5em; color: var(--accent); font-family: var(--font-body);
 .w.ru { font-family: var(--font-ru); }
 .w.ja { font-family: var(--font-ja); }
 .word .sub, .word .note { font-size: 13px; color: var(--muted); }
+.word .sub, .word .note, .overview, .unsure, .wb li, .notice, .status { font-family: var(--font-mix); }
 .word .mean { font-size: 14px; }
 .word .save { align-self: flex-start; margin-top: 4px; font-size: 12px; background: none; border: 1px solid var(--line); border-radius: 999px; padding: 3px 10px; color: var(--muted); cursor: pointer; font-family: inherit; }
 .word .save[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }

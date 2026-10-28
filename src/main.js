@@ -1,6 +1,7 @@
 import { analyzeOverview, analyzeLines, describeError, isFatal } from "./claude.js";
 import { EXAMPLES } from "./examples.js";
 import { crossCheck } from "./stresscheck.js";
+import { stripSectionLabels } from "./lyrics.js";
 import { lyricsKey, getSong, putSong, deleteSong, listSongs, requestPersist, migrateFromLocalStorage } from "./db.js";
 
 const $ = (s) => document.querySelector(s);
@@ -91,16 +92,6 @@ function render() {
   if (current.example) head.append(el("span", "example-flag", "예시 · 데모용으로 직접 쓴 문장입니다"));
   sheet.append(head);
 
-  const ov = el("section", "overview");
-  ov.append(el("span", "label", "전체 개요"));
-  if (current.overview) {
-    ov.append(el("p", null, current.overview.summary || ""));
-    if (current.overview.level) ov.append(el("p", "hint", "난이도 추정: " + current.overview.level));
-    if (current.overview.tips?.length) {
-      const ul = el("ul"); current.overview.tips.forEach((t) => ul.append(el("li", null, String(t)))); ov.append(ul);
-    }
-  } else ov.append(el("p", "pending", current.overviewError || "개요를 작성하는 중…"));
-  sheet.append(ov);
 
   const { idx, uniq } = uniqueLines(current.raw);
   const lines = el("section", "lines");
@@ -164,6 +155,23 @@ function render() {
     lines.append(row);
   });
   sheet.append(lines);
+  // Overview sits below the lines, collapsed unless the reader opens it.
+  const ov = el("details", "overview");
+  ov.open = !!current.overviewOpen;
+  ov.addEventListener("toggle", () => { if (current) current.overviewOpen = ov.open; });
+  const sum = el("summary");
+  sum.append(el("span", "label", "전체 개요"));
+  if (!current.overview) sum.append(el("span", "pending", current.overviewError ? " · 실패" : " · 작성 중…"));
+  ov.append(sum);
+  const mix = (t) => (lang === "ru" ? stressNodes(String(t)) : String(t));
+  if (current.overview) {
+    const p = el("p"); p.append(mix(current.overview.summary || "")); ov.append(p);
+    if (current.overview.level) ov.append(el("p", "hint", "난이도 추정: " + current.overview.level));
+    if (current.overview.tips?.length) {
+      const ul = el("ul"); current.overview.tips.forEach((t) => { const li = el("li"); li.append(mix(t)); ul.append(li); }); ov.append(ul);
+    }
+  } else ov.append(el("p", "pending", current.overviewError || "개요를 작성하는 중…"));
+  sheet.append(ov);
 }
 
 function wordCard(w, lang) {
@@ -236,7 +244,7 @@ async function renderHistory() {
 async function saveHistory(song) {
   if (!song || song.example) return;
   const entry = clone(song);
-  delete entry.lineErrors; delete entry.overviewError;
+  delete entry.lineErrors; delete entry.overviewError; delete entry.overviewOpen;
   entry.savedAt = Date.now();
   try { await putSong(entry); }
   catch { setStatus("해설을 이 기기에 저장하지 못했습니다. 저장 공간을 확인해 주세요.", true); return; }
@@ -267,7 +275,9 @@ function updateSearch() {
 // ---------- Analyze ----------
 async function analyze({ force = false } = {}) {
   hideDup();
-  const raw = $("#lyrics").value.replace(/\r/g, "").split("\n");
+  const { lines: raw, removed } = stripSectionLabels($("#lyrics").value.replace(/\r/g, "").split("\n"));
+  if (removed.length) $("#lyrics").value = raw.join("\n");
+  const labelNote = removed.length ? ` 구간 표시 ${removed.length}줄(${removed.slice(0, 3).join(", ")}${removed.length > 3 ? " …" : ""})은 뺐습니다.` : "";
   const text = raw.join("\n").trim();
   if (!text) { setStatus("가사를 붙여넣어 주세요. 제목만으로는 분석할 수 없어요.", true); $("#lyrics").focus(); return; }
   const lang = langChoice === "auto" ? detectLang(text) : langChoice;
@@ -348,7 +358,7 @@ async function analyze({ force = false } = {}) {
     const check = lang !== "ru" || !settings.stressCheck ? ""
       : checkFailed ? " 강세 확인 모델을 불러오지 못해 교차 확인은 건너뛰었습니다."
       : n ? ` 강세가 엇갈린 단어 ${n}개에 밑줄을 쳤습니다.` : " 강세 교차 확인에서 엇갈린 단어는 없었습니다.";
-    setStatus(`완료 · ${uniq.length}줄 분석.${check} 강세·읽기는 사전으로 한 번 더 확인하세요.`);
+    setStatus(`완료 · ${uniq.length}줄 분석.${labelNote}${check} 강세·읽기는 사전으로 한 번 더 확인하세요.`);
   }
   if (ok && song.key) saveHistory(song);
 }

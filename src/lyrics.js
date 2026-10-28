@@ -1,0 +1,43 @@
+// Removes section labels that lyric sites mix into pasted lyrics ("[Chorus]", "Припев:", "【サビ】" ...).
+// A removed label becomes a blank line, so it still separates stanzas.
+
+const WORDS = [
+  // English
+  "verse", "chorus", "pre-chorus", "prechorus", "post-chorus", "refrain", "hook", "bridge", "intro", "outro",
+  "interlude", "instrumental", "breakdown", "drop", "coda", "spoken", "repeat", "x\\d+",
+  // Russian
+  "куплет", "припев", "предприпев", "пред-припев", "бридж", "мост", "вступление", "интро", "аутро", "проигрыш",
+  "кода", "речитатив", "повтор",
+  // Japanese
+  "サビ", "[a-dａ-ｄＡ-Ｄ]メロ", "大サビ", "落ちサビ", "間奏", "前奏", "後奏", "イントロ", "アウトロ",
+  "コーラス", "ブリッジ", "ラップ", "セリフ", "台詞", "繰り返し", "\\d+番",
+];
+// A label word, optionally numbered or with a repeat count: "Verse 2", "Chorus x2", "Припев 1:", "1番".
+const CORE = `(?:${WORDS.join("|")})(?:\\s*[\\d０-９]+)?(?:\\s*[x×]\\s*\\d+)?`;
+const LABEL = new RegExp(`^${CORE}\\s*[:：]?$`, "iu");
+// Inside parentheses a singer name may follow: "(Chorus: Name)". Bare lines don't get this, so
+// a lyric such as "Мост — через реку" is never mistaken for a label.
+const LABEL_WITH_NAME = new RegExp(`^${CORE}\\s*(?:[:：\\-–—]\\s*[^\\n]{0,30})?$`, "iu");
+const ALWAYS_LABEL = /^[[［【〔〖].*[\]］】〕〗]$/u;   // a whole line in square-style brackets
+const PARENS = /^[(（](.*)[)）]$/u;                  // "(Chorus)" is a label, "(I miss you)" is a lyric
+
+export function isSectionLabel(line) {
+  const t = line.trim();
+  if (!t) return false;
+  if (ALWAYS_LABEL.test(t)) return true;
+  const inner = t.match(PARENS)?.[1]?.trim();
+  return inner != null ? LABEL_WITH_NAME.test(inner) : LABEL.test(t);
+}
+
+// Returns the cleaned lines and the labels that were removed.
+export function stripSectionLabels(lines) {
+  const removed = [];
+  const out = lines.map((l) => {
+    if (isSectionLabel(l)) { removed.push(l.trim()); return ""; }
+    return l;
+  });
+  // collapse runs of blank lines left behind
+  const cleaned = out.filter((l, i) => l.trim() || (i > 0 && out[i - 1].trim()));
+  while (cleaned.length && !cleaned[0].trim()) cleaned.shift();
+  return { lines: cleaned, removed };
+}
