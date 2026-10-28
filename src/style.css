@@ -116,7 +116,12 @@ label.check input { width: 18px; height: 18px; accent-color: var(--accent); }
 .wb li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; padding: 7px 0; border-top: 1px solid var(--line); align-items: center; }
 .wb li:first-child { border-top: 0; }
 .wb .x { background: none; border: 0; color: var(--muted); cursor: pointer; font-size: 18px; padding: 2px 8px; }
-.hist button { width: 100%; text-align: left; background: none; border: 0; padding: 8px 0; color: var(--ink); font: inherit; cursor: pointer; border-bottom: 1px dashed var(--line); }
+.notice { background: var(--warn-soft); color: var(--ink); border-radius: 8px; padding: 12px; display: flex; flex-direction: column; gap: 10px; }
+.notice p { margin: 0; font-size: 14px; }
+.hist li { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px; border-bottom: 1px dashed var(--line); }
+.hist .x { background: none; border: 0; color: var(--muted); cursor: pointer; font: inherit; font-size: 13px; padding: 6px 8px; white-space: nowrap; }
+.hist .x[data-armed="1"] { color: var(--accent); font-weight: 700; }
+.hist button.open { width: 100%; text-align: left; background: none; border: 0; padding: 8px 0; color: var(--ink); font: inherit; cursor: pointer; }
 .hist small, .wb small { color: var(--muted); }
 .empty { color: var(--muted); font-size: 13px; }
 footer.note { grid-column: 1 / -1; font-size: 12.5px; color: var(--muted); max-width: 80ch; }

@@ -1,6 +1,7 @@
 import { analyzeOverview, analyzeLines, describeError, isFatal } from "./claude.js";
 import { EXAMPLES } from "./examples.js";
 import { crossCheck } from "./stresscheck.js";
+import { lyricsKey, getSong, putSong, deleteSong, listSongs, requestPersist, migrateFromLocalStorage } from "./db.js";
 
 const $ = (s) => document.querySelector(s);
 const el = (tag, cls, text) => { const n = document.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = text; return n; };
@@ -15,7 +16,7 @@ let langChoice = "auto";
 let current = null;      // { lang, title, artist, raw[], lines{uniqueIdx: data}, overview, example? }
 let ctrl = null, stopped = false;
 let wordbook = store.get("ln.wordbook", []);
-let history = store.get("ln.history", []);
+let history = [];  // saved analyses, loaded from IndexedDB
 let settings = { apiKey: "", model: "claude-opus-5-5", stressCheck: true, ...store.get("ln.settings", {}) };
 
 // ---------- Helpers ----------
@@ -202,24 +203,49 @@ function renderWordbook() {
   });
 }
 
-function renderHistory() {
-  const ul = $("#hist"); ul.replaceChildren();
+function openSaved(h) {
+  current = clone(h); fillForm(current); render(); hideDup();
+  setStatus("저장된 해설을 불러왔습니다. API는 호출하지 않았습니다.");
+  window.scrollTo({ top: $("#sheet").offsetTop - 12 });
+}
+async function renderHistory() {
+  const ul = $("#hist");
+  try { history = await listSongs(); } catch { history = []; }
+  ul.replaceChildren();
+  $("#histCount").textContent = history.length ? `${history.length}곡` : "";
   if (!history.length) { ul.append(el("li", "empty", "분석한 노래가 여기에 저장됩니다 (이 기기에만).")); return; }
   history.forEach((h) => {
-    const li = el("li"); const b = el("button"); b.type = "button";
+    const li = el("li"); const b = el("button", "open"); b.type = "button";
     b.append(h.title || "제목 없음", " ", el("small", null, (h.artist ? h.artist + " · " : "") + (h.lang === "ru" ? "RU" : "JA")));
-    b.onclick = () => { current = clone(h); fillForm(current); render(); setStatus(""); window.scrollTo({ top: $("#sheet").offsetTop - 12 }); };
-    li.append(b); ul.append(li);
+    b.onclick = () => openSaved(h);
+    const x = el("button", "x", "×"); x.type = "button"; x.setAttribute("aria-label", `${h.title || "제목 없음"} 해설 삭제`);
+    // Two-tap delete: first tap arms, second tap deletes (no confirm() in a PWA we can rely on).
+    x.onclick = async () => {
+      if (x.dataset.armed !== "1") { x.dataset.armed = "1"; x.textContent = "삭제?"; return; }
+      try { await deleteSong(h.key); setStatus(`‘${h.title || "제목 없음"}’ 해설을 삭제했습니다.`); }
+      catch { setStatus("삭제하지 못했습니다.", true); }
+      renderHistory();
+    };
+    li.append(b, x); ul.append(li);
   });
 }
-function saveHistory() {
-  if (!current || current.example) return;
-  const entry = clone(current);
+async function saveHistory(song) {
+  if (!song || song.example) return;
+  const entry = clone(song);
   delete entry.lineErrors; delete entry.overviewError;
-  history = history.filter((h) => !(h.title === entry.title && h.artist === entry.artist));
-  history.unshift(entry); history = history.slice(0, 12);
-  store.set("ln.history", history); renderHistory();
+  entry.savedAt = Date.now();
+  try { await putSong(entry); }
+  catch { setStatus("해설을 이 기기에 저장하지 못했습니다. 저장 공간을 확인해 주세요.", true); return; }
+  renderHistory();
 }
+function showDup(saved, rerun) {
+  const box = $("#dupNotice");
+  $("#dupText").textContent = `이 가사는 이미 분석해서 저장해 둔 해설이 있습니다${saved.title ? ` (‘${saved.title}’)` : ""}. 다시 분석하면 API 비용이 다시 듭니다.`;
+  $("#dupOpen").onclick = () => openSaved(saved);
+  $("#dupRerun").onclick = () => { hideDup(); rerun(); };
+  box.hidden = false;
+}
+function hideDup() { $("#dupNotice").hidden = true; }
 function fillForm(c) {
   $("#title").value = c.example ? "" : (c.title || "");
   $("#artist").value = c.example ? "" : (c.artist || "");
@@ -235,16 +261,24 @@ function updateSearch() {
 }
 
 // ---------- Analyze ----------
-async function analyze() {
-  if (!settings.apiKey) { setStatus("먼저 설정에서 Anthropic API 키를 입력해 주세요.", true); openSettings(); return; }
+async function analyze({ force = false } = {}) {
+  hideDup();
   const raw = $("#lyrics").value.replace(/\r/g, "").split("\n");
   const text = raw.join("\n").trim();
   if (!text) { setStatus("가사를 붙여넣어 주세요. 제목만으로는 분석할 수 없어요.", true); $("#lyrics").focus(); return; }
   const lang = langChoice === "auto" ? detectLang(text) : langChoice;
   if (!lang) { setStatus("일본어나 러시아어 문자를 찾지 못했습니다. 언어를 직접 선택해 주세요.", true); return; }
+  let key = null;
+  try { key = await lyricsKey(lang, raw); } catch {}
+  if (key && !force) {
+    let saved = null;
+    try { saved = await getSong(key); } catch {}
+    if (saved) { showDup(saved, () => analyze({ force: true })); return; }
+  }
+  if (!settings.apiKey) { setStatus("먼저 설정에서 Anthropic API 키를 입력해 주세요.", true); openSettings(); return; }
 
   while (raw.length && !raw[raw.length - 1].trim()) raw.pop();
-  current = { lang, title: $("#title").value.trim(), artist: $("#artist").value.trim(), raw, lines: {}, overview: null, lineErrors: {} };
+  current = { key, lang, title: $("#title").value.trim(), artist: $("#artist").value.trim(), raw, lines: {}, overview: null, lineErrors: {} };
   const song = current;
   render();
   window.scrollTo({ top: $("#sheet").offsetTop - 12, behavior: "smooth" });
@@ -312,7 +346,7 @@ async function analyze() {
       : n ? ` 강세가 엇갈린 단어 ${n}개에 밑줄을 쳤습니다.` : " 강세 교차 확인에서 엇갈린 단어는 없었습니다.";
     setStatus(`완료 · ${uniq.length}줄 분석.${check} 강세·읽기는 사전으로 한 번 더 확인하세요.`);
   }
-  if (ok && current === song) saveHistory();
+  if (ok && song.key) saveHistory(song);
 }
 
 // ---------- Settings ----------
@@ -339,7 +373,7 @@ $("#openSettings").onclick = openSettings;
 
 // ---------- Wire up ----------
 document.querySelectorAll("#langSeg button").forEach((b) => (b.onclick = () => setLang(b.dataset.lang)));
-$("#go").onclick = analyze;
+$("#go").onclick = () => analyze();
 $("#stop").onclick = () => { stopped = true; ctrl?.abort(); };
 const showExample = (k) => { current = clone(EXAMPLES[k]); render(); setStatus("예시를 보는 중입니다. 실제 가사를 붙여넣고 ‘분석하기’를 누르세요."); };
 $("#exRu").onclick = () => showExample("ru");
@@ -354,7 +388,9 @@ $("#copyWb").onclick = async () => {
 };
 
 current = clone(EXAMPLES.ru);
-render(); renderWordbook(); renderHistory(); updateSearch();
+render(); renderWordbook(); updateSearch();
+migrateFromLocalStorage().catch(() => {}).finally(renderHistory);
+requestPersist();
 setStatus(settings.apiKey ? "러시아어 예시입니다. 가사를 붙여넣고 ‘분석하기’를 누르세요." : "처음이라면 오른쪽 위 ‘설정 · API 키’에서 키를 입력하세요.");
 
 if ("serviceWorker" in navigator && import.meta.env.PROD) {
