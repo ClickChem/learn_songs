@@ -55,6 +55,22 @@ function stressedLineNodes(str, diffs) {
   }
   return frag;
 }
+// Dictionary word + its hiragana reading -> ruby over the kanji part only
+// ("待つ"/"まつ" -> 待[ま]つ). Kana shared at either end is left unannotated.
+function wordRuby(word, reading) {
+  const frag = document.createDocumentFragment();
+  if (!reading || !/[\u4e00-\u9fff々]/.test(word)) { frag.append(word); return frag; }
+  const toHira = (c) => c.replace(/[\u30a1-\u30f6]/g, (x) => String.fromCharCode(x.charCodeAt(0) - 0x60));
+  let a = 0, b = 0;
+  while (a < word.length && a < reading.length && !/[\u4e00-\u9fff々]/.test(word[a]) && toHira(word[a]) === reading[a]) a++;
+  while (b < word.length - a && b < reading.length - a && !/[\u4e00-\u9fff々]/.test(word[word.length - 1 - b]) && toHira(word[word.length - 1 - b]) === reading[reading.length - 1 - b]) b++;
+  const core = word.slice(a, word.length - b), rcore = reading.slice(a, reading.length - b);
+  frag.append(word.slice(0, a));
+  if (core && rcore) { const rb = el("ruby"); rb.append(core, el("rt", null, rcore)); frag.append(rb); }
+  else frag.append(core);
+  frag.append(word.slice(word.length - b));
+  return frag;
+}
 function rubyNodes(segs, fallback) {
   const frag = document.createDocumentFragment();
   if (!Array.isArray(segs) || !segs.length) { frag.append(fallback); return frag; }
@@ -94,7 +110,6 @@ function lineRow(u, n, uniq, lang, seenAt) {
   body.append(orig);
   row.append(body);
   if (!d) { body.append(el("div", "pending", current.lineErrors?.[u] || "분석 대기 중…")); return row; }
-  if (d.roman) body.append(el("div", "roman", d.roman));
   body.append(el("div", "trans", d.translation || ""));
   if (seenAt != null) { body.append(el("div", "repeat-tag", `${seenAt}행과 같은 줄 · 해설은 ${seenAt}행에`)); return row; }
 
@@ -161,8 +176,29 @@ function render() {
 
   const head = el("div", "song-head");
   const hl = el("div");
-  hl.append(el("p", "song-title", current.title || "제목 없음"));
-  hl.append(el("div", "song-meta", [current.artist, lang === "ru" ? "러시아어" : "일본어"].filter(Boolean).join(" · ")));
+  const title = el("p", "song-title", current.title || "제목 없음");
+  const artist = el("span", "song-artist", current.artist || (current.example ? "" : "가수 미상"));
+  if (!current.example) {
+    for (const [node, field, empty] of [[title, "title", "제목 없음"], [artist, "artist", "가수 미상"]]) {
+      node.contentEditable = "plaintext-only";
+      node.spellcheck = false;
+      node.title = "눌러서 고칠 수 있어요";
+      node.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); node.blur(); } });
+      node.addEventListener("blur", () => {
+        const v = node.textContent.trim();
+        if (!v) { node.textContent = empty; }
+        if ((current[field] || "") === (v === empty ? "" : v)) return;
+        current[field] = v === empty ? "" : v;
+        current.titleGuessed = false;
+        if (current.key && Object.keys(current.lines).length) saveHistory(current);
+        render();
+      });
+    }
+  }
+  const meta = el("div", "song-meta");
+  meta.append(artist, " · " + (lang === "ru" ? "러시아어" : "일본어"));
+  if (current.titleGuessed) meta.append(el("span", "guess", " · 제목·가수는 Claude 추정 (눌러서 수정)"));
+  hl.append(title, meta);
   head.append(hl);
   if (current.example) head.append(el("span", "example-flag", "예시 · 데모용으로 직접 쓴 문장입니다"));
   sheet.append(head);
@@ -217,9 +253,9 @@ function render() {
 function wordCard(w, lang) {
   const c = el("div", "word");
   const head = el("span", "w " + lang);
-  if (lang === "ru") head.append(stressNodes(w.word || "")); else head.append(w.word || "");
+  if (lang === "ru") head.append(stressNodes(w.word || "")); else head.append(wordRuby(w.word || "", w.reading || ""));
   c.append(head);
-  const sub = [lang === "ru" ? (w.lemma && w.lemma !== w.word ? "기본형 " + w.lemma : "") : (w.reading || ""), w.pos].filter(Boolean).join(" · ");
+  const sub = [lang === "ru" ? (w.lemma && w.lemma !== w.word ? "기본형 " + w.lemma : "") : "", w.pos].filter(Boolean).join(" · ");
   if (sub) { const s = el("span", "sub"); s.append(lang === "ru" ? stressNodes(sub) : sub); c.append(s); }
   c.append(el("span", "mean", w.meaning || ""));
   if (w.note) { const n = el("span", "note"); n.append(lang === "ru" ? stressNodes(w.note) : w.note); c.append(n); }
@@ -244,9 +280,8 @@ function renderWordbook() {
     const li = el("li");
     const t = el("div");
     const ww = el("strong", "w " + w.lang);
-    ww.append(w.lang === "ru" ? stressNodes(w.word) : w.word);
+    ww.append(w.lang === "ru" ? stressNodes(w.word) : wordRuby(w.word, w.reading));
     t.append(ww);
-    if (w.reading) t.append(" (" + w.reading + ")");
     t.append(" — " + w.meaning);
     if (w.song) t.append(" ", el("small", null, "· " + w.song));
     const x = el("button", "x", "×"); x.type = "button"; x.setAttribute("aria-label", "단어 삭제");
@@ -349,7 +384,16 @@ async function analyze({ force = false } = {}) {
   setStatus("Claude가 읽는 중… (한 묶음에 수십 초 걸릴 수 있어요)"); setBar(0.03);
 
   const ovP = analyzeOverview(opts, song)
-    .then((o) => { song.overview = o; })
+    .then((o) => {
+      song.overview = o;
+      // Fill in title/artist only where the user left them blank.
+      const t = o.song_title?.trim(), a = o.song_artist?.trim();
+      if ((!song.title && t) || (!song.artist && a)) {
+        if (!song.title && t) song.title = t;
+        if (!song.artist && a) song.artist = a;
+        song.titleGuessed = true;
+      }
+    })
     .catch((e) => { const m = describeError(e); if (m) song.overviewError = "개요를 만들지 못했습니다: " + m; })
     .finally(() => { if (current === song) render(); });
 
@@ -400,7 +444,11 @@ async function analyze({ force = false } = {}) {
       : n ? ` 강세가 엇갈린 단어 ${n}개에 밑줄을 쳤습니다.` : " 강세 교차 확인에서 엇갈린 단어는 없었습니다.";
     setStatus(`완료 · ${uniq.length}줄 분석.${labelNote}${check} 강세·읽기는 사전으로 한 번 더 확인하세요.`);
   }
-  if (ok && song.key) saveHistory(song);
+  if (ok && song.key) {
+    saveHistory(song);
+    // Ready for the next song.
+    $("#lyrics").value = ""; $("#title").value = ""; $("#artist").value = ""; updateSearch();
+  }
 }
 
 // ---------- Settings ----------

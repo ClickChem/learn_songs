@@ -77,6 +77,10 @@ main.sheet { display: flex; flex-direction: column; gap: 18px; min-width: 0; }
 .song-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-end; gap: 10px; border-bottom: 2px solid var(--ink); padding-bottom: 12px; }
 .song-title { font-family: var(--font-display); font-size: clamp(20px, 5vw, 26px); font-weight: 800; margin: 0; overflow-wrap: anywhere; }
 .song-meta { color: var(--muted); font-size: 14px; }
+.song-title[contenteditable], .song-artist[contenteditable] { cursor: text; border-radius: 4px; outline-offset: 2px; }
+.song-title[contenteditable]:focus, .song-artist[contenteditable]:focus { outline: 2px solid var(--accent); }
+.guess { color: var(--warn); font-size: 12.5px; }
+.word .w ruby rt { font-size: 0.55em; }
 .example-flag { display: inline-block; font-size: 12px; background: var(--warn-soft); color: var(--warn); border-radius: 4px; padding: 2px 8px; }
 .overview { background: var(--paper); border: 1px solid var(--line); border-radius: 10px; padding: 0 16px; }
 .overview summary { cursor: pointer; padding: 14px 0; list-style: none; display: flex; align-items: center; gap: 6px; }

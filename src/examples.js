@@ -5,7 +5,7 @@ export const EXAMPLES = {
     raw: ["Я иду по тихой улице одна,", "И падает снег на мою ладонь."],
     overview: { summary: "겨울밤 혼자 걷는 화자가 손바닥에 떨어지는 눈을 바라보는 장면입니다. 고요함과 쓸쓸함이 함께 느껴집니다.", level: "초급~초중급", tips: ["па́дает снег처럼 глаго́л를 подлежа́щее 앞에 두는 어순은 가사에서 장면을 그릴 때 자주 쓰입니다.", "одна́ 하나로 화자의 성별이 드러나는 점도 눈여겨보세요."] },
     lines: {
-      0: { stressed: "Я иду́ по ти́хой у́лице одна́,", roman: "Ya idu po tikhoy ulitse odna", translation: "나는 조용한 거리를 혼자 걸어간다,",
+      0: { stressed: "Я иду́ по ти́хой у́лице одна́,", translation: "나는 조용한 거리를 혼자 걸어간다,",
         words: [
           { word: "иду́", lemma: "идти́", pos: "глаго́л, несоверше́нный вид", meaning: "가다, 걸어가다", note: "한 방향으로 지금 가는 중. 반복·왕복은 ходи́ть." },
           { word: "ти́хой", lemma: "ти́хий", pos: "прилага́тельное, ж. р., да́тельный паде́ж", meaning: "조용한", note: "у́лица(ж. р.)에 맞춰 -ой." },
@@ -13,7 +13,7 @@ export const EXAMPLES = {
           { word: "одна́", lemma: "оди́н", pos: "числи́тельное, ж. р.", meaning: "혼자, 하나", note: "남성 화자라면 оди́н." } ],
         grammar: [],
         unsure: [] },
-      1: { stressed: "И па́дает снег на мою́ ладо́нь.", roman: "I padayet sneg na moyu ladon'", translation: "그리고 눈이 내 손바닥 위로 떨어진다.",
+      1: { stressed: "И па́дает снег на мою́ ладо́нь.", translation: "그리고 눈이 내 손바닥 위로 떨어진다.",
         words: [
           { word: "па́дает", lemma: "па́дать", pos: "глаго́л, несоверше́нный вид, 3-е лицо́, ед. ч.", meaning: "떨어지다, 내리다", note: "соверше́нный вид는 упа́сть." },
           { word: "снег", lemma: "снег", pos: "существи́тельное, м. р.", meaning: "눈(雪)", note: "단음절이라 강세 표시 없음." },
@@ -27,7 +27,7 @@ export const EXAMPLES = {
     overview: { summary: "밤 역에서 누군가를 기다리며 내일에 대한 희망을 품는 장면입니다.", level: "초급", tips: ["～ている와 ～だろう는 가사에 정말 자주 나오니 꼭 익혀 두세요."] },
     lines: {
       0: { ruby: [{t:"夜",r:"よる"},{t:"の",r:""},{t:"駅",r:"えき"},{t:"で",r:""},{t:"君",r:"きみ"},{t:"を",r:""},{t:"待",r:"ま"},{t:"っている",r:""}],
-        roman: "yoru no eki de kimi o matte iru", translation: "밤의 역에서 너를 기다리고 있어",
+        translation: "밤의 역에서 너를 기다리고 있어",
         words: [
           { word: "夜", reading: "よる", pos: "명사", meaning: "밤", note: "" },
           { word: "駅", reading: "えき", pos: "명사", meaning: "역", note: "" },
@@ -37,7 +37,7 @@ export const EXAMPLES = {
                    { point: "～ている", explain: "진행 중인 동작(기다리고 있다) 또는 지속 상태." } ],
         unsure: [] },
       1: { ruby: [{t:"明日",r:"あした"},{t:"は",r:""},{t:"きっと",r:""},{t:"晴",r:"は"},{t:"れるだろう",r:""}],
-        roman: "ashita wa kitto hareru darō", translation: "내일은 분명 맑겠지",
+        translation: "내일은 분명 맑겠지",
         words: [
           { word: "明日", reading: "あした", pos: "명사", meaning: "내일", note: "あす, みょうにち로도 읽음(더 격식)." },
           { word: "きっと", reading: "きっと", pos: "부사", meaning: "분명, 꼭", note: "" },

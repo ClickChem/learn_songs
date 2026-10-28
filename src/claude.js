@@ -7,18 +7,18 @@ const Grammar = z.object({ point: z.string(), explain: z.string() });
 
 const RuWord = z.object({ word: z.string(), lemma: z.string(), pos: z.string(), meaning: z.string(), note: z.string() });
 const RuLine = z.object({
-  id: z.number().int(), stressed: z.string(), roman: z.string(), translation: z.string(),
+  id: z.number().int(), stressed: z.string(), translation: z.string(),
   words: z.array(RuWord), grammar: z.array(Grammar), unsure: z.array(z.string()),
 });
 
 const JaWord = z.object({ word: z.string(), reading: z.string(), pos: z.string(), meaning: z.string(), note: z.string() });
 const JaLine = z.object({
-  id: z.number().int(), ruby: z.array(z.object({ t: z.string(), r: z.string() })), roman: z.string(), translation: z.string(),
+  id: z.number().int(), ruby: z.array(z.object({ t: z.string(), r: z.string() })), translation: z.string(),
   words: z.array(JaWord), grammar: z.array(Grammar), unsure: z.array(z.string()),
 });
 
 const LINES = { ru: z.object({ lines: z.array(RuLine) }), ja: z.object({ lines: z.array(JaLine) }) };
-const Overview = z.object({ summary: z.string(), level: z.string(), tips: z.array(z.string()) });
+const Overview = z.object({ song_title: z.string(), song_artist: z.string(), summary: z.string(), level: z.string(), tips: z.array(z.string()) });
 
 // Server-side refusal fallback is offered for Opus 5.5 and Sonnet 5.5 on the Claude API, not for Haiku 5.5.
 const FALLBACK_MODELS = new Set(["claude-opus-5-5", "claude-sonnet-5-5"]);
@@ -42,6 +42,7 @@ const songLine = (s) => `Song (as named by the learner): "${s.title || "unknown"
 function overviewPrompt(s) {
   return `${songLine(s)}
 Based only on the pasted text below, give:
+- song_title, song_artist: the song's title and performer, only if you recognize the song from these lyrics with high confidence; otherwise "" for both. Write them as commonly published (original script). Never quote lyrics here.
 - summary: 3-5 Korean sentences on what the lyrics say and their mood
 - level: a short Korean estimate of learner level (e.g. 초급, 중급)
 - tips: 2-4 short Korean study tips specific to this text${s.lang === "ru" ? " (assume the learner knows A1-A2 grammar; no tips about basic declension or agreement; use Russian grammatical terms)" : ""}
@@ -54,7 +55,6 @@ ${s.raw.join("\n")}`;
 function linesPrompt(s, batch, covered) {
   const fmt = s.lang === "ru"
     ? `- stressed: the line exactly as given, with the combining acute accent U+0301 placed right after the stressed vowel of every word of two or more syllables. Do not mark ё (always stressed) or one-syllable words. Change no other character.
-- roman: simple Latin transliteration.
 - words[].word / lemma: the form in the line and its dictionary form, both with U+0301 stress marks.
 - words[].pos: in Russian grammatical terms, with U+0301 stress marks, e.g. "глаго́л, несоверше́нный вид" or "существи́тельное, ж. р., да́тельный паде́ж".
 - words[].meaning: Korean. words[].note: short Korean, but name grammar with Russian terms (e.g. "соверше́нный вид는 упа́сть").
@@ -62,7 +62,6 @@ function linesPrompt(s, batch, covered) {
 - The learner already knows A1-A2 grammar. Do NOT explain basics such as noun/adjective declension by gender and case, basic case use after common prepositions, gender agreement, present/past tense forms or personal pronouns. Choose points from B1 and above instead: aspect choice and its nuance, prefixed verbs of motion, participles and verbal adverbs (причастия, деепричастия), conditional and subjunctive (бы), impersonal constructions, word order and emphasis, colloquial or poetic forms, idioms and set phrases. If a line has nothing beyond A2, return grammar as [].
 - words: likewise skip words a learner at A2 knows; pick the less common or song-specific ones.`
     : `- ruby: consecutive segments that together reproduce the line exactly. Each segment {t, r}: r is the hiragana reading only for segments containing kanji (okurigana goes in its own segment with r ""), otherwise r is "".
-- roman: Hepburn romanization.
 - words[].word: dictionary form; reading: hiragana; pos: Korean part of speech (e.g. 동사 (5단)); note: e.g. the conjugated form used in the line.`;
   return `${songLine(s)}
 For each numbered line below return an entry with:
