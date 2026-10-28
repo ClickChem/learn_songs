@@ -2,7 +2,7 @@ import { analyzeOverview, analyzeLines, describeError, isFatal } from "./claude.
 import { EXAMPLES, BIBLE_EXAMPLES } from "./examples.js";
 import { parseVerses } from "./bible.js";
 import { crossCheck } from "./stresscheck.js";
-import { stripSectionLabels } from "./lyrics.js";
+import { stripSectionLabels, stripJunk } from "./lyrics.js";
 import { lyricsKey, getSong, putSong, deleteSong, listSongs, requestPersist, migrateFromLocalStorage } from "./db.js";
 
 const $ = (s) => document.querySelector(s);
@@ -241,6 +241,7 @@ function render() {
   let cur = null, n = 0;
   idx.forEach((u, i) => {
     if (u === null) { cur = null; return; }
+    if (current.lines[u]?.not_text) return;   // Claude marked it as not part of the text
     if (!cur) stanzas.push(cur = []);
     n++;
     // Bible: show the verse number pulled from the text (blank for a verse's later sentences)
@@ -388,9 +389,10 @@ async function analyze({ force = false } = {}) {
   if (kind === "bible") ({ lines: raw, nums } = parseVerses(pasted));
   else {
     ({ lines: raw, removed } = stripSectionLabels(pasted));
+    const junk = stripJunk(raw, { title: $("#title").value.trim(), artist: $("#artist").value.trim() });
+    raw = junk.lines; removed = [...removed, ...junk.removed];
     if (removed.length) $("#lyrics").value = raw.join("\n");
   }
-  const labelNote = removed.length ? ` 구간 표시 ${removed.length}줄(${removed.slice(0, 3).join(", ")}${removed.length > 3 ? " …" : ""})은 뺐습니다.` : "";
   const text = raw.join("\n").trim();
   if (!text) { setStatus(MODES[mode].empty, true); $("#lyrics").focus(); return; }
   const lang = langChoice === "auto" ? detectLang(text) : langChoice;
@@ -439,7 +441,7 @@ async function analyze({ force = false } = {}) {
     .catch((e) => { const m = describeError(e); if (m) song.overviewError = "개요를 만들지 못했습니다: " + m; })
     .finally(() => { if (current === song) render(); });
 
-  const covered = [];
+  const covered = [], hidden = [];
   let done = 0, failed = false, checkFailed = false, checkNoted = false;
   for (const batch of batches) {
     if (stopped) break;
@@ -449,6 +451,7 @@ async function analyze({ force = false } = {}) {
       for (const d of lines) {
         if (!batch.some((b) => b.id === d.id)) continue;
         song.lines[d.id] = d;
+        if (d.not_text) { hidden.push(batch.find((b) => b.id === d.id).text); continue; }
         d.words.forEach((w) => covered.push((w.lemma || w.word).replace(/́/g, "")));
       }
       batch.forEach((b) => { if (!song.lines[b.id]) song.lineErrors[b.id] = "이 줄은 결과가 비어 있습니다."; });
@@ -457,7 +460,7 @@ async function analyze({ force = false } = {}) {
         try {
           for (const b of batch) {
             const d = song.lines[b.id];
-            if (d?.stressed) d.check = await crossCheck(b.text, d.stressed);
+            if (d?.stressed && !d.not_text) d.check = await crossCheck(b.text, d.stressed);
           }
         } catch {
           checkFailed = true; // keep the Claude results; just skip the cross-check
@@ -484,7 +487,11 @@ async function analyze({ force = false } = {}) {
     const check = lang !== "ru" || !settings.stressCheck ? ""
       : checkFailed ? " 강세 확인 모델을 불러오지 못해 교차 확인은 건너뛰었습니다."
       : n ? ` 강세가 엇갈린 단어 ${n}개에 밑줄을 쳤습니다.` : " 강세 교차 확인에서 엇갈린 단어는 없었습니다.";
-    setStatus(`완료 · ${uniq.length}${MODES[mode].unitLine} 분석.${labelNote}${check} 강세·읽기는 사전으로 한 번 더 확인하세요.`);
+    // One note for everything left out: obvious lines dropped before sending, and lines Claude flagged.
+    const out = [...removed, ...hidden];
+    const what = mode === "bible" ? "본문이 아닌 줄" : "가사가 아닌 줄";
+    const outNote = out.length ? ` ${what} ${out.length}개(${out.slice(0, 3).join(", ")}${out.length > 3 ? " …" : ""})는 뺐습니다.` : "";
+    setStatus(`완료 · ${uniq.length - hidden.length}${MODES[mode].unitLine} 분석.${outNote}${check} 강세·읽기는 사전으로 한 번 더 확인하세요.`);
   }
   if (ok && song.key) {
     saveHistory(song);

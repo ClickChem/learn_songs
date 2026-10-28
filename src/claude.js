@@ -7,13 +7,13 @@ const Grammar = z.object({ point: z.string(), explain: z.string() });
 
 const RuWord = z.object({ word: z.string(), lemma: z.string(), pos: z.string(), meaning: z.string(), note: z.string() });
 const RuLine = z.object({
-  id: z.number().int(), stressed: z.string(), translation: z.string(),
+  id: z.number().int(), not_text: z.boolean(), stressed: z.string(), translation: z.string(),
   words: z.array(RuWord), grammar: z.array(Grammar), unsure: z.array(z.string()),
 });
 
 const JaWord = z.object({ word: z.string(), reading: z.string(), pos: z.string(), meaning: z.string(), note: z.string() });
 const JaLine = z.object({
-  id: z.number().int(), ruby: z.array(z.object({ t: z.string(), r: z.string() })), translation: z.string(),
+  id: z.number().int(), not_text: z.boolean(), ruby: z.array(z.object({ t: z.string(), r: z.string() })), translation: z.string(),
   words: z.array(JaWord), grammar: z.array(Grammar), unsure: z.array(z.string()),
 });
 
@@ -38,6 +38,7 @@ const system = (lang, kind) => [
   lang === "ru"
     ? `Write translations, word meanings, notes and the overview in natural Korean, but use Russian grammatical terms (e.g. дательный падеж, несовершенный вид) instead of Korean ones. Grammar points are written entirely in simple Russian, as the user prompt describes.`
     : `Write every explanation, translation and note in natural Korean.`,
+  `Korean style: ${kind === "bible" ? "write the translation" : "write the lyric translation in casual 해체 (반말, e.g. ~해, ~야, ~지), as a song would speak; write"} every other Korean text (explanations, notes, grammar, unsure notes, overview) in polite 합니다체 (~합니다, ~입니다)${kind === "bible" ? ", including the translation" : ""}. Word meanings are short dictionary glosses (e.g. "가다, 걸어가다").`,
   `Accuracy matters more than completeness: if you are not sure about a reading, stress, nuance or idiom, say so briefly in "unsure" instead of stating it confidently.`,
 ].join("\n");
 
@@ -54,7 +55,7 @@ const BIBLE_NOTES = {
 function overviewPrompt(s) {
   const bible = s.kind === "bible";
   return `${songLine(s)}
-Based only on the pasted text below, give:
+Based only on the pasted text below, give the following. The paste may include stray lines that are not ${bible ? "verse text" : "lyrics"} (a title or artist header, credits, a website or app name, section labels): ignore them for the summary, but you may use a title/artist header to fill the fields below.
 ${bible
   ? `- song_title: the book, chapter and verse(s) in Korean (e.g. "요한복음 3:16-17"), only if you can identify them with high confidence; otherwise "".
 - song_artist: the translation's name (e.g. "Синодальный перевод", "口語訳"), only if you can tell with high confidence from the wording; otherwise "".
@@ -85,6 +86,7 @@ function linesPrompt(s, batch, covered) {
   return `${songLine(s)}
 For each numbered line below return an entry with:
 - id: the number given
+- not_text: true only if the line is clearly not part of the ${s.kind === "bible" ? "verse text: a section heading, a book/chapter reference line, a translation name, a copyright notice, or an app or website name" : "sung lyrics: the song title, the artist name, an \"Artist - Title\" header, credits (作詞, слова, music by ...), a website or app name, an ad, a section label"}. If it is true, leave every other field empty (""/[]). When unsure, false.
 ${fmt}
 - translation: natural Korean translation that fits the context${s.kind === "bible" ? ", using standard Korean Christian terms (e.g. 독생자, 은혜, 의) but in your own wording; do not quote a published Korean Bible" : ""}
 - words: 2-5 key words worth learning, skipping trivial particles and pronouns${covered.length ? ` and these already explained: ${covered.slice(-80).join(", ")}` : ""}. note may be "".

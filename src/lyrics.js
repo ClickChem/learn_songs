@@ -41,3 +41,37 @@ export function stripSectionLabels(lines) {
   while (cleaned.length && !cleaned[0].trim()) cleaned.shift();
   return { lines: cleaned, removed };
 }
+
+// Page furniture that lyric sites leave in a copy-paste: credits, site names, counters, "Lyrics" headers.
+const JUNK = [
+  /^\d+\s*contributors?\b/i, /(^|\d|\s)embed$/i, /^you might also like$/i, /^translations?\b/i, /^see .* live$/i,
+  /^(作詞|作曲|編曲|歌|歌手|唄|訳詞)\s*[:：]/u,
+  /^(слова|музыка|исполнитель|автор(ы)?(\s+(слов|музыки))?|аранжировка)\s*[:：]/iu,
+  /^(lyrics|words|music|written|composed|arranged|source|источник)\s*(by)?\s*[:：]/iu,
+  /^(©|\(c\)|copyright\b|℗)/iu,
+  /(genius|musixmatch|azlyrics|lyrics\.com|lyricstranslate|uta-?net|utaten|j-?lyric|petitlyrics|歌ネット|текстпесни|pesni\.|songtexte|amalgama)/iu,
+  /(^|\s)(lyrics|歌詞|текст песни|слова песни|перевод песни)\s*$/iu,
+];
+
+// Lines that repeat the title / artist the reader typed ("Artist - Title", "Title", "Artist").
+function isHeader(t, title, artist) {
+  const norm = (x) => x.toLowerCase().replace(/[\p{P}\p{S}\s]+/gu, "");
+  const n = norm(t);
+  if (!n) return false;
+  const ti = title ? norm(title) : "", ar = artist ? norm(artist) : "";
+  return (ti && n === ti) || (ar && n === ar) || (ti && ar && (n === ar + ti || n === ti + ar));
+}
+
+// Removes obvious non-lyric lines; anything less clear-cut is left for Claude to flag.
+export function stripJunk(lines, { title = "", artist = "" } = {}) {
+  const removed = [];
+  const out = lines.map((l) => {
+    const t = l.trim();
+    if (t && t.length <= 80 && (JUNK.some((re) => re.test(t)) || isHeader(t, title, artist))) { removed.push(t); return ""; }
+    return l;
+  });
+  const cleaned = out.filter((l, i) => l.trim() || (i > 0 && out[i - 1].trim()));
+  while (cleaned.length && !cleaned[0].trim()) cleaned.shift();
+  return { lines: cleaned, removed };
+}
+
