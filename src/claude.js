@@ -45,7 +45,7 @@ Based only on the pasted text below, give:
 - song_title, song_artist: the song's title and performer, only if you recognize the song from these lyrics with high confidence; otherwise "" for both. Write them as commonly published (original script). Never quote lyrics here.
 - summary: 3-5 Korean sentences on what the lyrics say and their mood
 - level: a short Korean estimate of learner level (e.g. 초급, 중급)
-- tips: 2-4 short Korean study tips specific to this text${s.lang === "ru" ? " (assume the learner knows A1-A2 grammar; no tips about basic declension or agreement; use Russian grammatical terms)" : ""}
+- tips: 2-4 short Korean study tips specific to this text${s.lang === "ru" ? " (assume the learner knows A1-A2 grammar; no tips about basic declension or agreement; use Russian grammatical terms)" : " (the learner has passed JLPT N2; tips only about N1-level grammar, idioms, literary forms or nuance)"}
 Do not state facts about the song's release, writer or background unless they are visible in the text.
 
 Pasted lyrics:
@@ -62,7 +62,9 @@ function linesPrompt(s, batch, covered) {
 - The learner already knows A1-A2 grammar. Do NOT explain basics such as noun/adjective declension by gender and case, basic case use after common prepositions, gender agreement, present/past tense forms or personal pronouns. Choose points from B1 and above instead: aspect choice and its nuance, prefixed verbs of motion, participles and verbal adverbs (причастия, деепричастия), conditional and subjunctive (бы), impersonal constructions, word order and emphasis, colloquial or poetic forms, idioms and set phrases. If a line has nothing beyond A2, return grammar as [].
 - words: likewise skip words a learner at A2 knows; pick the less common or song-specific ones.`
     : `- ruby: consecutive segments that together reproduce the line exactly. Each segment {t, r}: r is the hiragana reading only for segments containing kanji (okurigana goes in its own segment with r ""), otherwise r is "".
-- words[].word: dictionary form; reading: hiragana; pos: Korean part of speech (e.g. 동사 (5단)); note: e.g. the conjugated form used in the line.`;
+- words[].word: dictionary form; reading: hiragana; pos: Korean part of speech (e.g. 동사 (5단)); note: e.g. the conjugated form used in the line.
+- The learner has passed JLPT N2. Do NOT explain grammar or words at N2 level or below (particles, ている, だろう, ように, ばかり, わけ, はず and the like). Focus on N1-level grammar, idioms and set phrases (慣用句, 四字熟語, ことわざ), literary and classical forms common in lyrics (〜ぬ, 〜ず, 〜ゆく, 〜べし, 〜んことを, 〜ども ...), poetic or unusual kanji readings (当て字), and nuance between near-synonyms. If a line has nothing beyond N2, return grammar as [] and only list words that are genuinely advanced (words can be []).
+- grammar: point is the pattern in Japanese (e.g. 〜んばかりに); explain in Korean, 1-2 sentences, with what level/register it is.`;
   return `${songLine(s)}
 For each numbered line below return an entry with:
 - id: the number given
