@@ -255,6 +255,14 @@ function render() {
   hl.append(title, meta);
   head.append(hl);
   if (current.example) head.append(el("span", "example-flag", T.exampleFlag));
+  const left = !current.example && current.key && !ctrl ? missingIds(current).length : 0;
+  if (left) {
+    const btn = el("button", "btn primary small", `남은 ${left}${T.unitLine} 이어서 분석`);
+    btn.type = "button";
+    const song = current;
+    btn.onclick = () => resumeAnalysis(song);
+    head.append(btn);
+  }
   sheet.append(head);
 
 
@@ -352,8 +360,11 @@ function renderWordbook() {
 }
 
 function openSaved(h) {
-  current = clone(h); fillForm(current); render(); hideDup();
-  setStatus("저장된 해설을 불러왔습니다. API는 호출하지 않았습니다.");
+  current = clone(h); lastView[mode] = current; render(); hideDup();
+  const left = missingIds(current).length;
+  setStatus(left
+    ? `저장된 해설을 불러왔습니다. ${left}${M(h.kind).unitLine}이 아직 분석되지 않았습니다. ‘이어서 분석’을 누르면 남은 부분만 분석합니다.`
+    : "저장된 해설을 불러왔습니다. API는 호출하지 않았습니다.");
   window.scrollTo({ top: $("#sheet").offsetTop - 12 });
 }
 async function renderHistory() {
@@ -364,7 +375,9 @@ async function renderHistory() {
   if (!history.length) { ul.append(el("li", "empty", MODES[mode].listEmpty)); return; }
   history.forEach((h) => {
     const li = el("li"); const b = el("button", "open"); b.type = "button";
+    const leftH = missingIds(h).length;
     b.append(h.title || M(h.kind).noTitle, " ", el("small", null, (h.artist ? h.artist + " · " : "") + h.lang.toUpperCase()));
+    if (leftH) b.append(" ", el("small", "partial", `· ${leftH}${M(h.kind).unitLine} 남음`));
     b.onclick = () => openSaved(h);
     const x = el("button", "x", "×"); x.type = "button"; x.setAttribute("aria-label", `${h.title || "제목 없음"} 해설 삭제`);
     // Two-tap delete: first tap arms, second tap deletes (no confirm() in a PWA we can rely on).
@@ -388,18 +401,22 @@ async function saveHistory(song) {
 }
 function showDup(saved, rerun) {
   const box = $("#dupNotice");
-  $("#dupText").textContent = `${M(saved.kind).dupWhat} 이미 분석해서 저장해 둔 해설이 있습니다${saved.title ? ` (‘${saved.title}’)` : ""}. 다시 분석하면 API 비용이 다시 듭니다.`;
+  const left = missingIds(saved).length;
+  const unit = M(saved.kind).unitLine;
+  const name = saved.title ? ` (‘${saved.title}’)` : "";
+  $("#dupText").textContent = left
+    ? `${M(saved.kind).dupWhat} 분석하다 멈춘 해설이 있습니다${name}. ${left}${unit}이 남았습니다. 이어서 분석하면 남은 부분에만 API 비용이 듭니다.`
+    : `${M(saved.kind).dupWhat} 이미 분석해서 저장해 둔 해설이 있습니다${name}. 다시 분석하면 API 비용이 다시 듭니다.`;
+  $("#dupResume").hidden = !left;
+  $("#dupResume").textContent = `남은 ${left}${unit} 이어서 분석`;
+  $("#dupResume").onclick = () => resumeAnalysis(saved);
+  $("#dupOpen").className = left ? "btn small" : "btn primary small";
   $("#dupOpen").onclick = () => openSaved(saved);
+  $("#dupRerun").textContent = left ? "처음부터 다시 분석" : "그래도 다시 분석";
   $("#dupRerun").onclick = () => { hideDup(); rerun(); };
   box.hidden = false;
 }
 function hideDup() { $("#dupNotice").hidden = true; }
-function fillForm(c) {
-  $("#title").value = c.example ? "" : (c.title || "");
-  $("#artist").value = c.example ? "" : (c.artist || "");
-  $("#lyrics").value = c.example ? "" : c.raw.map((l, i) => (c.nums?.[i] ? c.nums[i] + " " : "") + l).join("\n");
-  updateSearch();
-}
 function setLang(l) { langChoice = l; document.querySelectorAll("#langSeg button").forEach((b) => b.setAttribute("aria-pressed", b.dataset.lang === l)); }
 function setStatus(t, err) { const s = $("#status"); s.textContent = t; s.classList.toggle("err", !!err); }
 function setBar(p) { $("#bar").style.width = Math.round(p * 100) + "%"; }
@@ -444,26 +461,56 @@ async function analyze({ force = false } = {}) {
   // The Bible tab assumes the reader's own translations unless they name another.
   const DEFAULT_TRANSLATION = { ja: "JCB (リビングバイブル)", ru: "НРП (Новый русский перевод)" };
   const artist = $("#artist").value.trim() || (kind === "bible" ? DEFAULT_TRANSLATION[lang] : "");
-  current = { key, kind, lang, title: $("#title").value.trim(), artist, raw, nums, lines: {}, overview: null, lineErrors: {} };
-  lastView[mode] = current;
-  const song = current;
+  const song = { key, kind, lang, title: $("#title").value.trim(), artist, raw, nums, lines: {}, overview: null, lineErrors: {} };
+  // Store the text right away, so even a run that fails at once can be resumed later; then clear
+  // the form for the next one.
+  if (key) {
+    await saveHistory(song);
+    $("#lyrics").value = ""; $("#title").value = ""; $("#artist").value = ""; updateSearch();
+  }
+  await runAnalysis(song, { removed });
+}
+
+// Unique lines of a song that have no analysis yet (never sent, failed, or cut off).
+function missingIds(song) {
+  const { uniq } = uniqueLines(song.raw);
+  return uniq.map((t, id) => ({ id, text: t })).filter((b) => !song.lines[b.id]);
+}
+
+// Picks up an interrupted analysis: only the lines (and overview) still missing are sent.
+async function resumeAnalysis(saved) {
+  hideDup();
+  if (!settings.apiKey) { setStatus("먼저 설정에서 Anthropic API 키를 입력해 주세요.", true); openSettings(); return; }
+  const song = clone(saved);
+  song.lineErrors = {};
+  await runAnalysis(song, { resumed: true });
+}
+
+async function runAnalysis(song, { removed = [], resumed = false } = {}) {
+  current = song; lastView[mode] = song;
+  stopped = false;
+  ctrl = new AbortController();   // set before the first render: no "resume" button while running
   render();
   window.scrollTo({ top: $("#sheet").offsetTop - 12, behavior: "smooth" });
+  const { lang } = song;
+  const unit = MODES[mode].unitLine;
 
-  const { uniq } = uniqueLines(raw);
+  const { uniq } = uniqueLines(song.raw);
+  const todo = missingIds(song);
   const BATCH = 8;
   const batches = [];
-  for (let i = 0; i < uniq.length; i += BATCH) batches.push(uniq.slice(i, i + BATCH).map((t, j) => ({ id: i + j, text: t })));
+  for (let i = 0; i < todo.length; i += BATCH) batches.push(todo.slice(i, i + BATCH));
 
-  stopped = false;
-  ctrl = new AbortController();
   const opts = { apiKey: settings.apiKey, model: settings.model, signal: ctrl.signal };
   $("#go").disabled = true; $("#stop").hidden = false;
-  setStatus("Claude가 읽는 중… (한 묶음에 수십 초 걸릴 수 있어요)"); setBar(0.03);
+  setStatus(resumed
+    ? `이어서 분석합니다. 이미 분석한 ${uniq.length - todo.length}${unit}은 건너뜁니다.`
+    : "Claude가 읽는 중… (한 묶음에 수십 초 걸릴 수 있어요)");
+  setBar((uniq.length - todo.length) / Math.max(uniq.length, 1) || 0.03);
 
-  const ovP = analyzeOverview(opts, song)
+  const ovP = song.overview ? Promise.resolve() : analyzeOverview(opts, song)
     .then((o) => {
-      song.overview = o;
+      song.overview = o; delete song.overviewError;
       // Fill in title/artist only where the user left them blank.
       const t = o.song_title?.trim(), a = o.song_artist?.trim();
       if ((!song.title && t) || (!song.artist && a)) {
@@ -471,21 +518,25 @@ async function analyze({ force = false } = {}) {
         if (!song.artist && a) song.artist = a;
         song.titleGuessed = true;
       }
+      if (song.key) saveHistory(song);
     })
     .catch((e) => { const m = describeError(e); if (m) song.overviewError = "개요를 만들지 못했습니다: " + m; })
     .finally(() => { if (current === song) render(); });
 
-  const covered = [];
-  let done = 0, failed = false, checkFailed = false, checkNoted = false;
+  // Words already explained (also from an earlier, interrupted run) are not repeated.
+  const covered = Object.values(song.lines).flatMap((d) => d.words || []).map((w) => (w.lemma || w.word).replace(/\u0301/g, ""));
+  let failed = false, checkFailed = false, checkNoted = false;
   for (const batch of batches) {
     if (stopped) break;
-    setStatus(`${MODES[mode].unitLine}별 분석 중… ${Math.min(done + batch.length, uniq.length)}/${uniq.length}${MODES[mode].unitLine}`);
+    const doneNow = Object.keys(song.lines).length;
+    setStatus(`${unit}별 분석 중… ${Math.min(doneNow + batch.length, uniq.length)}/${uniq.length}${unit}`);
     try {
       const lines = await analyzeLines(opts, song, batch, covered);
       for (const d of lines) {
         if (!batch.some((b) => b.id === d.id)) continue;
         song.lines[d.id] = d;
-        d.words.forEach((w) => covered.push((w.lemma || w.word).replace(/́/g, "")));
+        delete song.lineErrors[d.id];
+        d.words.forEach((w) => covered.push((w.lemma || w.word).replace(/\u0301/g, "")));
       }
       batch.forEach((b) => { if (!song.lines[b.id]) song.lineErrors[b.id] = "이 줄은 결과가 비어 있습니다."; });
       if (lang === "ru" && settings.stressCheck && !checkFailed) {
@@ -499,6 +550,8 @@ async function analyze({ force = false } = {}) {
           checkFailed = true; // keep the Claude results; just skip the cross-check
         }
       }
+      // Save after every batch, so a closed app or a dropped connection loses at most one batch.
+      if (song.key) saveHistory(song);
     } catch (e) {
       const m = describeError(e);
       if (m === null) break; // cancelled
@@ -507,32 +560,30 @@ async function analyze({ force = false } = {}) {
       setStatus(m, true);
       if (isFatal(e)) break;
     }
-    done += batch.length;
-    setBar(done / uniq.length);
+    setBar(Object.keys(song.lines).length / uniq.length);
     if (current === song) render();
   }
   await ovP;
   $("#go").disabled = false; $("#stop").hidden = true; ctrl = null;
-  const ok = Object.keys(song.lines).length;
-  if (stopped) setStatus(`멈췄습니다. ${ok}/${uniq.length}${MODES[mode].unitLine} 분석됨.`);
-  else if (!failed) {
-    const n = Object.values(song.lines).reduce((s, d) => s + (d.check?.diffs?.length || 0), 0);
-    const check = lang !== "ru" || !settings.stressCheck ? ""
-      : checkFailed ? " 강세 확인 모델을 불러오지 못해 교차 확인은 건너뛰었습니다."
-      : n ? ` 강세가 엇갈린 단어 ${n}개에 밑줄을 쳤습니다.` : " 강세 교차 확인에서 엇갈린 단어는 없었습니다.";
-    // One note for everything left out: obvious lines dropped before sending, and lines Claude flagged.
-    const { idx: allIdx } = uniqueLines(song.raw);
-    const hidden = [...edgeHidden(allIdx, song.lines)].map((i) => song.raw[i].trim());
-    const out = [...removed, ...hidden];
-    const what = mode === "bible" ? "본문이 아닌 줄" : "가사가 아닌 줄";
-    const outNote = out.length ? ` ${what} ${out.length}개(${out.slice(0, 3).join(", ")}${out.length > 3 ? " …" : ""})는 뺐습니다.` : "";
-    setStatus(`완료 · ${uniq.length - hidden.length}${MODES[mode].unitLine} 분석.${outNote}${check} 강세·읽기는 사전으로 한 번 더 확인하세요.`);
+  const left = missingIds(song).length;
+  if (song.key) saveHistory(song);
+  if (current === song) render();
+  if (left) {
+    const why = stopped ? "멈췄습니다." : failed ? "일부가 실패했습니다." : "분석이 끝나지 않았습니다.";
+    setStatus(`${why} ${uniq.length - left}/${uniq.length}${unit} 분석됨. ‘남은 ${left}${unit} 이어서 분석’을 누르면 나머지만 분석합니다.`, failed && !stopped);
+    return;
   }
-  if (ok && song.key) {
-    saveHistory(song);
-    // Ready for the next song / passage.
-    $("#lyrics").value = ""; $("#title").value = ""; $("#artist").value = ""; updateSearch();
-  }
+  const n = Object.values(song.lines).reduce((s, d) => s + (d.check?.diffs?.length || 0), 0);
+  const check = lang !== "ru" || !settings.stressCheck ? ""
+    : checkFailed ? " 강세 확인 모델을 불러오지 못해 교차 확인은 건너뛰었습니다."
+    : n ? ` 강세가 엇갈린 단어 ${n}개에 밑줄을 쳤습니다.` : " 강세 교차 확인에서 엇갈린 단어는 없었습니다.";
+  // One note for everything left out: obvious lines dropped before sending, and lines Claude flagged.
+  const { idx: allIdx } = uniqueLines(song.raw);
+  const hidden = [...edgeHidden(allIdx, song.lines)].map((i) => song.raw[i].trim());
+  const out = [...removed, ...hidden];
+  const what = mode === "bible" ? "본문이 아닌 줄" : "가사가 아닌 줄";
+  const outNote = out.length ? ` ${what} ${out.length}개(${out.slice(0, 3).join(", ")}${out.length > 3 ? " …" : ""})는 뺐습니다.` : "";
+  setStatus(`완료 · ${uniq.length - hidden.length}${unit} 분석.${outNote}${check} 강세·읽기는 사전으로 한 번 더 확인하세요.`);
 }
 
 // ---------- Settings ----------
