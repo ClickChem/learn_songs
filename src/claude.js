@@ -17,7 +17,17 @@ const JaLine = z.object({
   words: z.array(JaWord), grammar: z.array(Grammar), unsure: z.array(z.string()),
 });
 
-const LINES = { ru: z.object({ lines: z.array(RuLine) }), ja: z.object({ lines: z.array(JaLine) }) };
+// Spanish / French: the line is shown as pasted, so only the explanation comes back.
+const LatinLine = z.object({
+  id: z.number().int(), not_text: z.boolean(), translation: z.string(),
+  words: z.array(RuWord), grammar: z.array(Grammar), unsure: z.array(z.string()),
+});
+
+// Chinese uses the Japanese shape: ruby segments carry pinyin instead of kana.
+const LINES = {
+  ru: z.object({ lines: z.array(RuLine) }), ja: z.object({ lines: z.array(JaLine) }), zh: z.object({ lines: z.array(JaLine) }),
+  es: z.object({ lines: z.array(LatinLine) }), fr: z.object({ lines: z.array(LatinLine) }),
+};
 const Overview = z.object({ song_title: z.string(), song_artist: z.string(), summary: z.string(), level: z.string(), tips: z.array(z.string()) });
 
 // Server-side refusal fallback is offered for Opus 5.5 and Sonnet 5.5 on the Claude API, not for Haiku 5.5.
@@ -26,7 +36,7 @@ const FALLBACK_MODELS = new Set(["claude-opus-5-5", "claude-sonnet-5-5"]);
 export class RefusedError extends Error {}
 
 // ---------- Prompts ----------
-const LANG_NAME = { ru: "Russian", ja: "Japanese" };
+const LANG_NAME = { ru: "Russian", ja: "Japanese", zh: "Chinese", es: "Spanish", fr: "French" };
 
 const system = (lang, kind) => [
   kind === "bible"
@@ -63,26 +73,42 @@ ${bible
   : `- song_title, song_artist: the song's title and performer, only if you recognize the song from these lyrics with high confidence; otherwise "" for both. Write them as commonly published (original script). Never quote lyrics here.
 - summary: 3-5 Korean sentences on what the lyrics say and their mood`}
 - level: a short Korean estimate of learner level (e.g. 초급, 중급)
-- tips: 2-4 short Korean study tips specific to this text${s.lang === "ru" ? " (assume the learner knows A1-A2 grammar; no tips about basic declension or agreement; use Russian grammatical terms)" : " (the learner has passed JLPT N2; tips only about N1-level grammar, idioms, literary forms or nuance)"}
+- tips: 2-4 short Korean study tips specific to this text${{
+    ru: " (assume the learner knows A1-A2 grammar; no tips about basic declension or agreement; use Russian grammatical terms)",
+    ja: " (the learner has passed JLPT N2; tips only about N1-level grammar, idioms, literary forms or nuance)",
+  }[s.lang] ?? " (the learner is a beginner from A1; basic points are welcome)"}
 ${bible ? "Keep the summary factual and neutral." : "Do not state facts about the song's release, writer or background unless they are visible in the text."}
 
 Pasted ${bible ? "passage" : "lyrics"}:
 ${s.raw.join("\n")}`;
 }
 
+// Chinese, Spanish and French: the learner starts from zero, so nothing is too basic.
+const BEGINNER = `- The learner is a beginner (CEFR A1 / HSK 1 upward). Basic grammar is welcome: articles and gender, verb conjugation and tense, pronouns, word order, common particles and measure words, and so on, as well as more advanced points when they appear. Keep each explanation short and concrete with a tiny example.
+- grammar: point names the pattern in the original language with a short Korean label (e.g. "ser vs estar (두 가지 '이다')", "了 (완료)"); explain in Korean.
+- Do not add any romanization or pronunciation guide other than what the fields above ask for.`;
+
 function linesPrompt(s, batch, covered) {
-  const fmt = s.lang === "ru"
-    ? `- stressed: the line exactly as given, with the combining acute accent U+0301 placed right after the stressed vowel of every word of two or more syllables. Do not mark ё (always stressed) or one-syllable words. Change no other character.
+  const fmt = {
+    ru: `- stressed: the line exactly as given, with the combining acute accent U+0301 placed right after the stressed vowel of every word of two or more syllables. Do not mark ё (always stressed) or one-syllable words. Change no other character.
 - words[].word / lemma: the form in the line and its dictionary form, both with U+0301 stress marks.
 - words[].pos: in Russian grammatical terms, with U+0301 stress marks, e.g. "глаго́л, несоверше́нный вид" or "существи́тельное, ж. р., да́тельный паде́ж".
 - words[].meaning: Korean. words[].note: short Korean, but name grammar with Russian terms (e.g. "соверше́нный вид는 упа́сть").
 - grammar: write point and explain entirely in Russian at CEFR A2-B1 level: short sentences, common everyday words, Russian grammatical terms (паде́ж, вид, род, предло́г, глаго́л...), and a short example. Put U+0301 stress marks on every word of two or more syllables. No Korean in grammar.
 - The learner already knows A1-A2 grammar. Do NOT explain basics such as noun/adjective declension by gender and case, basic case use after common prepositions, gender agreement, present/past tense forms or personal pronouns. Choose points from B1 and above instead: aspect choice and its nuance, prefixed verbs of motion, participles and verbal adverbs (причастия, деепричастия), conditional and subjunctive (бы), impersonal constructions, word order and emphasis, colloquial or poetic forms, idioms and set phrases. If a line has nothing beyond A2, return grammar as [].
-- words: likewise skip words a learner at A2 knows; pick the less common or song-specific ones.${s.kind === "bible" ? "\n" + BIBLE_NOTES.ru : ""}`
-    : `- ruby: consecutive segments that together reproduce the line exactly. Each segment {t, r}: r is the hiragana reading only for segments containing kanji (okurigana goes in its own segment with r ""), otherwise r is "".
+- words: likewise skip words a learner at A2 knows; pick the less common or song-specific ones.${s.kind === "bible" ? "\n" + BIBLE_NOTES.ru : ""}`,
+    ja: `- ruby: consecutive segments that together reproduce the line exactly. Each segment {t, r}: r is the hiragana reading only for segments containing kanji (okurigana goes in its own segment with r ""), otherwise r is "".
 - words[].word: dictionary form; reading: hiragana; pos: Korean part of speech (e.g. 동사 (5단)); note: e.g. the conjugated form used in the line.
 - The learner has passed JLPT N2. Do NOT explain grammar or words at N2 level or below (particles, ている, だろう, ように, ばかり, わけ, はず and the like). Focus on N1-level grammar, idioms and set phrases (慣用句, 四字熟語, ことわざ), literary and classical forms common in lyrics (〜ぬ, 〜ず, 〜ゆく, 〜べし, 〜んことを, 〜ども ...), poetic or unusual kanji readings (当て字), and nuance between near-synonyms. If a line has nothing beyond N2, return grammar as [] and only list words that are genuinely advanced (words can be []).
-- grammar: point is the pattern in Japanese (e.g. 〜んばかりに); explain in Korean, 1-2 sentences, with what level/register it is.${s.kind === "bible" ? "\n" + BIBLE_NOTES.ja : ""}`;
+- grammar: point is the pattern in Japanese (e.g. 〜んばかりに); explain in Korean, 1-2 sentences, with what level/register it is.${s.kind === "bible" ? "\n" + BIBLE_NOTES.ja : ""}`,
+    zh: `- ruby: consecutive segments that together reproduce the line exactly, one segment per Chinese character, each {t: the character, r: its Hanyu Pinyin with tone marks (e.g. "nǐ")}; use the reading in this context for polyphonic characters (行 xíng/háng, 了 le/liǎo), the neutral tone without a mark, and r "" for punctuation, Latin letters and digits.
+- words[].word: the word as a dictionary entry (simplified or traditional, as in the line); reading: its Pinyin with tone marks; pos: Korean part of speech; meaning: Korean; note: short Korean (e.g. measure word, usage).
+${BEGINNER}`,
+    es: `- words[].word: the form in the line; lemma: the dictionary form (infinitive, masculine singular); pos: Korean part of speech with gender for nouns (남성/여성) and tense/person for verbs (e.g. "동사, 직설법 현재 3인칭 단수"); meaning: Korean; note: short Korean.
+${BEGINNER}`,
+    fr: `- words[].word: the form in the line; lemma: the dictionary form (infinitive, masculine singular); pos: Korean part of speech with gender for nouns (남성/여성) and tense/person for verbs (e.g. "동사, 직설법 현재 3인칭 단수"); meaning: Korean; note: short Korean, including liaison or elision when it matters (e.g. l'amour, ils_ont).
+${BEGINNER}`,
+  }[s.lang];
   return `${songLine(s)}
 For each numbered line below return an entry with:
 - id: the number given

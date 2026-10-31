@@ -46,11 +46,25 @@ const MODES = {
 const M = (kind) => MODES[kind === "bible" ? "bible" : "song"];
 
 // ---------- Helpers ----------
+const LANG_KO = { ja: "일본어", ru: "러시아어", zh: "중국어", es: "스페인어", fr: "프랑스어" };
+const RUBY_LANGS = new Set(["ja", "zh"]);       // line shown with ruby (furigana / pinyin)
+
+// Guess the language from the script, and for Latin text from telltale letters and common words.
 function detectLang(txt) {
-  const ja = (txt.match(/[぀-ヿ一-鿿]/g) || []).length;
-  const ru = (txt.match(/[Ѐ-ӿ]/g) || []).length;
-  if (!ja && !ru) return null;
-  return ja >= ru ? "ja" : "ru";
+  const count = (re) => (txt.match(re) || []).length;
+  const kana = count(/[\u3040-\u30ff]/g), han = count(/[\u4e00-\u9fff]/g), cyr = count(/[\u0400-\u04ff]/g);
+  const latin = count(/[A-Za-zÀ-ÿœŒ]/g);
+  const top = Math.max(kana + han, cyr, latin);
+  if (!top) return null;
+  if (top === cyr) return "ru";
+  if (top === kana + han) return kana >= 2 || kana > han * 0.05 ? "ja" : "zh";
+  const words = txt.toLowerCase().match(/[a-zà-ÿœ']+/g) || [];
+  const ES = new Set("el los las que y de en es por con para una mi tu yo no me te se lo del al como pero más muy está estoy eres soy".split(" "));
+  const FR = new Set("le les et je tu il elle est pas une des du au aux qui dans mon ton ma ce cette avec pour sur ne nous vous suis es c'est j'ai".split(" "));
+  let es = count(/[ñ¿¡áíóú]/gi) * 3, fr = count(/[çœàèùêâîôûëï]/gi) * 3;
+  for (const w of words) { if (ES.has(w)) es++; if (FR.has(w)) fr++; }
+  if (!es && !fr) return null;
+  return es >= fr ? "es" : "fr";
 }
 // Colors the vowel carrying each U+0301 stress mark.
 function stressNodes(str) {
@@ -130,7 +144,7 @@ function lineRow(u, label, uniq, lang, seenAt) {
   const body = el("div", "ln-body");
   const orig = el("div", "orig " + lang);
   if (d && lang === "ru" && d.stressed) orig.append(stressedLineNodes(d.stressed, seenAt == null ? d.check?.diffs : null));
-  else if (d && lang === "ja") orig.append(rubyNodes(d.ruby, uniq[u]));
+  else if (d && RUBY_LANGS.has(lang)) orig.append(rubyNodes(d.ruby, uniq[u]));
   else orig.append(uniq[u]);
   body.append(orig);
   row.append(body);
@@ -185,7 +199,7 @@ function repeatedStanza(st, [from, to], uniq, lang) {
     const t = el("div");
     const o = el("div", "orig small " + lang);
     if (d && lang === "ru" && d.stressed) o.append(stressNodes(d.stressed));
-    else if (d && lang === "ja") o.append(rubyNodes(d.ruby, uniq[u]));
+    else if (d && RUBY_LANGS.has(lang)) o.append(rubyNodes(d.ruby, uniq[u]));
     else o.append(uniq[u]);
     t.append(o);
     if (d?.translation) t.append(el("div", "trans", d.translation));
@@ -225,7 +239,7 @@ function render() {
     }
   }
   const meta = el("div", "song-meta");
-  meta.append(artist, " · " + (lang === "ru" ? "러시아어" : "일본어"));
+  meta.append(artist, " · " + LANG_KO[lang]);
   if (current.titleGuessed) meta.append(el("span", "guess", " · " + T.guess));
   hl.append(title, meta);
   head.append(hl);
@@ -286,9 +300,11 @@ function render() {
 function wordCard(w, lang) {
   const c = el("div", "word");
   const head = el("span", "w " + lang);
-  if (lang === "ru") head.append(stressNodes(w.word || "")); else head.append(wordRuby(w.word || "", w.reading || ""));
+  if (lang === "ru") head.append(stressNodes(w.word || ""));
+  else if (RUBY_LANGS.has(lang)) head.append(wordRuby(w.word || "", w.reading || ""));
+  else head.append(w.word || "");
   c.append(head);
-  const sub = [lang === "ru" ? (w.lemma && w.lemma !== w.word ? "기본형 " + w.lemma : "") : "", w.pos].filter(Boolean).join(" · ");
+  const sub = [!RUBY_LANGS.has(lang) && w.lemma && w.lemma !== w.word ? "기본형 " + w.lemma : "", w.pos].filter(Boolean).join(" · ");
   if (sub) { const s = el("span", "sub"); s.append(lang === "ru" ? stressNodes(sub) : sub); c.append(s); }
   c.append(el("span", "mean", w.meaning || ""));
   if (w.note) { const n = el("span", "note"); n.append(lang === "ru" ? stressNodes(w.note) : w.note); c.append(n); }
@@ -336,7 +352,7 @@ async function renderHistory() {
   if (!history.length) { ul.append(el("li", "empty", MODES[mode].listEmpty)); return; }
   history.forEach((h) => {
     const li = el("li"); const b = el("button", "open"); b.type = "button";
-    b.append(h.title || M(h.kind).noTitle, " ", el("small", null, (h.artist ? h.artist + " · " : "") + (h.lang === "ru" ? "RU" : "JA")));
+    b.append(h.title || M(h.kind).noTitle, " ", el("small", null, (h.artist ? h.artist + " · " : "") + h.lang.toUpperCase()));
     b.onclick = () => openSaved(h);
     const x = el("button", "x", "×"); x.type = "button"; x.setAttribute("aria-label", `${h.title || "제목 없음"} 해설 삭제`);
     // Two-tap delete: first tap arms, second tap deletes (no confirm() in a PWA we can rely on).
@@ -396,7 +412,13 @@ async function analyze({ force = false } = {}) {
   const text = raw.join("\n").trim();
   if (!text) { setStatus(MODES[mode].empty, true); $("#lyrics").focus(); return; }
   const lang = langChoice === "auto" ? detectLang(text) : langChoice;
-  if (!lang) { setStatus("일본어나 러시아어 문자를 찾지 못했습니다. 언어를 직접 선택해 주세요.", true); return; }
+  const allowed = mode === "bible" ? ["ja", "ru"] : Object.keys(LANG_KO);
+  if (!lang || !allowed.includes(lang)) {
+    setStatus(mode === "bible"
+      ? "성경 탭은 일본어·러시아어만 지원합니다. 언어를 확인해 주세요."
+      : "언어를 알아내지 못했습니다. 위에서 언어를 직접 선택해 주세요.", true);
+    return;
+  }
   let key = null;
   try { key = await lyricsKey(lang, raw, kind); } catch {}
   if (key && !force) {
@@ -540,6 +562,9 @@ function setMode(m, { initial = false } = {}) {
   $("#textLabel").textContent = T.textLabel;
   $("#lyrics").placeholder = T.placeholder;
   $("#textHint").hidden = m === "bible";   // the lyrics-search hint only makes sense for songs
+  // Chinese, Spanish and French are for songs only.
+  document.querySelectorAll("#langSeg .song-only").forEach((b) => (b.hidden = m === "bible"));
+  if (m === "bible" && !["auto", "ja", "ru"].includes(langChoice)) setLang("auto");
   if (!initial) {
     $("#lyrics").value = ""; $("#title").value = ""; $("#artist").value = ""; updateSearch(); hideDup();
     setStatus("");

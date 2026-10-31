@@ -11,6 +11,12 @@ const WORDS = [
   // Japanese
   "サビ", "[a-dａ-ｄＡ-Ｄ]メロ", "大サビ", "落ちサビ", "間奏", "前奏", "後奏", "イントロ", "アウトロ",
   "コーラス", "ブリッジ", "ラップ", "セリフ", "台詞", "繰り返し", "\\d+番",
+  // Chinese
+  "主歌", "副歌", "桥段", "橋段", "前奏", "间奏", "尾奏", "说唱", "說唱", "合唱", "重复", "重複", "独白", "獨白",
+  // Spanish
+  "verso", "estrofa", "coro", "estribillo", "pre-coro", "precoro", "puente", "introducción", "final", "puente musical",
+  // French
+  "couplet", "refrain", "pré-refrain", "pont", "intro", "outro",
 ];
 // A label word, optionally numbered or with a repeat count: "Verse 2", "Chorus x2", "Припев 1:", "1番".
 const CORE = `(?:${WORDS.join("|")})(?:\\s*[\\d０-９]+)?(?:\\s*[x×]\\s*\\d+)?`;
@@ -46,11 +52,13 @@ export function stripSectionLabels(lines) {
 const JUNK = [
   /^\d+\s*contributors?\b/i, /(^|\d|\s)embed$/i, /^you might also like$/i, /^translations?\b/i, /^see .* live$/i,
   /^(作詞|作曲|編曲|歌|歌手|唄|訳詞)\s*[:：]/u,
+  /^(作词|作曲|编曲|演唱|歌手|制作人|監製|监制|填词|填詞)\s*[:：]/u,
+  /^(letra|música|autor(es)?|compositor(es)?|intérprete|paroles|musique|auteur(s)?|compositeur(s)?|interprète)\s*(de)?\s*[:：]/iu,
   /^(слова|музыка|исполнитель|автор(ы)?(\s+(слов|музыки))?|аранжировка)\s*[:：]/iu,
   /^(lyrics|words|music|written|composed|arranged|source|источник)\s*(by)?\s*[:：]/iu,
   /^(©|\(c\)|copyright\b|℗)/iu,
   /(genius|musixmatch|azlyrics|lyrics\.com|lyricstranslate|uta-?net|utaten|j-?lyric|petitlyrics|歌ネット|текстпесни|pesni\.|songtexte|amalgama)/iu,
-  /(^|\s)(lyrics|歌詞|текст песни|слова песни|перевод песни)\s*$/iu,
+  /(^|\s)(lyrics|歌詞|歌词|текст песни|слова песни|перевод песни|letra|paroles)\s*$/iu,
 ];
 
 // Lines that repeat the title / artist the reader typed ("Artist - Title", "Title", "Artist").
