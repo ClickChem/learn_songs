@@ -46,6 +46,17 @@ const MODES = {
 const M = (kind) => MODES[kind === "bible" ? "bible" : "song"];
 
 // ---------- Helpers ----------
+// Positions of lines Claude flagged as not part of the text that sit in the header block of the
+// paste (before the first real line). A flagged line anywhere else is shown anyway: it is most
+// likely sung (songs repeat and end on their title), and dropping real lyrics is worse than keeping
+// a stray line. Trailing site furniture is already removed by stripJunk before analysis.
+function edgeHidden(idx, lines) {
+  const hidden = new Set();
+  const flagged = (u) => u === null || !!lines[u]?.not_text;
+  for (let i = 0; i < idx.length && flagged(idx[i]); i++) if (idx[i] !== null) hidden.add(i);
+  return hidden;
+}
+
 const LANG_KO = { ja: "일본어", ru: "러시아어", zh: "중국어", es: "스페인어", fr: "프랑스어" };
 const RUBY_LANGS = new Set(["ja", "zh"]);       // line shown with ruby (furigana / pinyin)
 
@@ -248,6 +259,7 @@ function render() {
 
 
   const { idx, uniq } = uniqueLines(current.raw);
+  const hiddenAt = edgeHidden(idx, current.lines);
   const lines = el("section", "lines");
 
   // Group lines into stanzas (split at blank lines) and number them.
@@ -255,7 +267,7 @@ function render() {
   let cur = null, n = 0;
   idx.forEach((u, i) => {
     if (u === null) { cur = null; return; }
-    if (current.lines[u]?.not_text) return;   // Claude marked it as not part of the text
+    if (hiddenAt.has(i)) return;   // Claude marked it as not part of the text, at the edge of the paste
     if (!cur) stanzas.push(cur = []);
     n++;
     // Bible: show the verse number pulled from the text (blank for a verse's later sentences)
@@ -463,7 +475,7 @@ async function analyze({ force = false } = {}) {
     .catch((e) => { const m = describeError(e); if (m) song.overviewError = "개요를 만들지 못했습니다: " + m; })
     .finally(() => { if (current === song) render(); });
 
-  const covered = [], hidden = [];
+  const covered = [];
   let done = 0, failed = false, checkFailed = false, checkNoted = false;
   for (const batch of batches) {
     if (stopped) break;
@@ -473,7 +485,6 @@ async function analyze({ force = false } = {}) {
       for (const d of lines) {
         if (!batch.some((b) => b.id === d.id)) continue;
         song.lines[d.id] = d;
-        if (d.not_text) { hidden.push(batch.find((b) => b.id === d.id).text); continue; }
         d.words.forEach((w) => covered.push((w.lemma || w.word).replace(/́/g, "")));
       }
       batch.forEach((b) => { if (!song.lines[b.id]) song.lineErrors[b.id] = "이 줄은 결과가 비어 있습니다."; });
@@ -482,7 +493,7 @@ async function analyze({ force = false } = {}) {
         try {
           for (const b of batch) {
             const d = song.lines[b.id];
-            if (d?.stressed && !d.not_text) d.check = await crossCheck(b.text, d.stressed);
+            if (d?.stressed) d.check = await crossCheck(b.text, d.stressed);
           }
         } catch {
           checkFailed = true; // keep the Claude results; just skip the cross-check
@@ -510,6 +521,8 @@ async function analyze({ force = false } = {}) {
       : checkFailed ? " 강세 확인 모델을 불러오지 못해 교차 확인은 건너뛰었습니다."
       : n ? ` 강세가 엇갈린 단어 ${n}개에 밑줄을 쳤습니다.` : " 강세 교차 확인에서 엇갈린 단어는 없었습니다.";
     // One note for everything left out: obvious lines dropped before sending, and lines Claude flagged.
+    const { idx: allIdx } = uniqueLines(song.raw);
+    const hidden = [...edgeHidden(allIdx, song.lines)].map((i) => song.raw[i].trim());
     const out = [...removed, ...hidden];
     const what = mode === "bible" ? "본문이 아닌 줄" : "가사가 아닌 줄";
     const outNote = out.length ? ` ${what} ${out.length}개(${out.slice(0, 3).join(", ")}${out.length > 3 ? " …" : ""})는 뺐습니다.` : "";

@@ -71,11 +71,20 @@ function isHeader(t, title, artist) {
 }
 
 // Removes obvious non-lyric lines; anything less clear-cut is left for Claude to flag.
+// A line that merely repeats the title or artist is dropped only in the header block (before the
+// first lyric line): songs often sing their own title, and many end on it.
 export function stripJunk(lines, { title = "", artist = "" } = {}) {
   const removed = [];
-  const out = lines.map((l) => {
-    const t = l.trim();
-    if (t && t.length <= 80 && (JUNK.some((re) => re.test(t)) || isHeader(t, title, artist))) { removed.push(t); return ""; }
+  const isJunk = (t) => t.length <= 80 && JUNK.some((re) => re.test(t));
+  const isEdge = (t) => !t || isJunk(t) || (t.length <= 80 && isHeader(t, title, artist));
+  const trimmed = lines.map((l) => l.trim());
+  let first = trimmed.findIndex((t) => !isEdge(t));
+  if (first === -1) first = trimmed.length;
+  const out = lines.map((l, i) => {
+    const t = trimmed[i];
+    if (!t) return l;
+    const header = i < first && isHeader(t, title, artist);
+    if (isJunk(t) || header) { removed.push(t); return ""; }
     return l;
   });
   const cleaned = out.filter((l, i) => l.trim() || (i > 0 && out[i - 1].trim()));

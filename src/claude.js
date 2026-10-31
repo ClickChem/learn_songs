@@ -112,7 +112,7 @@ ${BEGINNER}`,
   return `${songLine(s)}
 For each numbered line below return an entry with:
 - id: the number given
-- not_text: true only if the line is clearly not part of the ${s.kind === "bible" ? "verse text: a section heading, a book/chapter reference line, a translation name, a copyright notice, or an app or website name" : "sung lyrics: the song title, the artist name, an \"Artist - Title\" header, credits (作詞, слова, music by ...), a website or app name, an ad, a section label"}. If it is true, leave every other field empty (""/[]). When unsure, false.
+- not_text: true only if the line is clearly not part of the ${s.kind === "bible" ? "verse text: a section heading, a book/chapter reference line, a translation name, a copyright notice, or an app or website name" : "sung lyrics: the song title, the artist name, an \"Artist - Title\" header, credits (作詞, слова, music by ...), a website or app name, an ad, a section label. A line that is or contains the song title is NOT a header when it is sung - songs often sing their own title, especially in the chorus; only a standalone title/artist line in the header or footer of the paste counts"}. Fill every other field as for a normal line even when it is true. When unsure, false.
 ${fmt}
 - translation: natural Korean translation that fits the context${s.kind === "bible" ? ", using standard Korean Christian terms (e.g. 독생자, 은혜, 의) but in your own wording; do not quote a published Korean Bible" : ""}
 - words: 2-5 key words worth learning, skipping trivial particles and pronouns${covered.length ? ` and these already explained: ${covered.slice(-80).join(", ")}` : ""}. note may be "".
