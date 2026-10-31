@@ -1,8 +1,8 @@
 // App-shell cache. API calls (api.anthropic.com) are cross-origin and never cached.
-const CACHE = "lyric-note-v1";
+const CACHE = "lyric-note-v2";
 
 self.addEventListener("install", (e) => {
-  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(["./", "./index.html", "./manifest.webmanifest", "./icon-192.png", "./icon-512.png"])));
+  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(["./", "./index.html", "./manifest.webmanifest", "./icon-192.png", "./icon-512.png", "./icon-maskable-512.png", "./icon.svg"])));
   self.skipWaiting();
 });
 
